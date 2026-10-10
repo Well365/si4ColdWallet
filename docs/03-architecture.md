@@ -25,7 +25,7 @@ airgap-wallet/
 │   ├── aw-keys/            # BIP32（secp256k1）/ SLIP-10（ed25519）派生
 │   ├── aw-ur/              # UR：bytewords、CRC32、fountain、最小 CBOR（自实现，官方测试向量）
 │   ├── aw-chain-btc/       # BTC/DOGE：PSBT 解析、显示模型、签名
-│   ├── aw-chain-evm/       # ETH/BNB/EVM（P2a）：Keccak、RLP、交易审查/签名、ERC-20、EIP-191、eth-sign-request
+│   ├── aw-chain-evm/       # ETH/BNB/EVM（P2a）：Keccak、RLP、交易审查/签名、ERC-20、EIP-191、EIP-712、eth-sign-request
 │   ├── aw-chain-sol/       # SOL（P2）
 │   ├── aw-chain-near/      # NEAR（P2）
 │   ├── aw-chain-tron/      # TRON（P2）

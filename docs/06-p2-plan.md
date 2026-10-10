@@ -2,7 +2,7 @@
 
 状态：2026-10-10 起草 · P1 的 BTC 框架（审查 → 签名 → 观察机复核、动画二维码、C1–C11 检查）原样复用
 
-进度：P2a 第一部分完成（见 `docs/feynman/P2a.md`）；EIP-712 拆到 P2a 第二部分，实现前一律拒签。
+进度：P2a 第一部分完成（见 `docs/feynman/P2a.md`）；P2b 完成（`docs/feynman/P2b.md`）；P2a 第二部分 EIP-712 完成（`docs/feynman/P2a-2.md`，决策 D29），另按用户要求加入 passphrase 模式（D30）与区块浏览器网址（D31）。
 
 **调整（2026-10-10，用户要求）**：先做"严格的随机数生成"与"各链地址生成"（P2b，见 `docs/feynman/P2b.md`），EIP-712 暂停（严格 JSON 解析器已完成），DOGE / TRON / SOL / NEAR 的交易审查与签名顺延为 P2c–P2e。
 
