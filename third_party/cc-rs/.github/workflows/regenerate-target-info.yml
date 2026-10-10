@@ -1,0 +1,61 @@
+name: Regenerate target info
+
+on:
+  workflow_dispatch: # Allow running on-demand
+  schedule:
+    - cron: '0 3 * * 4'
+  push:
+    branches:
+      - 'main'
+    paths:
+      - 'dev-tools/gen-target-info/**'
+
+jobs:
+  regenerate:
+    if: github.repository_owner == 'rust-lang'
+    name: Regenerate target info & Open Pull Request if necessary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Generate branch name
+        run: |
+          git checkout -b regenerate-target-info-${{ github.run_id }}
+
+      - name: Install rust
+        # Install both MSRV and current nightly
+        run: |
+          rustup toolchain install 1.63 stable nightly --no-self-update --profile minimal
+
+      - name: Create lockfile
+        run: cargo update
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-all-crates: 'true'
+      - name: Regenerate target info
+        run: cargo run -p gen-target-info
+
+      - name: Detect changes
+        id: changes
+        run:
+          # This output boolean tells us if the dependencies have actually changed
+          echo "count=$(git status --porcelain=v1 | wc -l)" >> $GITHUB_OUTPUT
+
+      - name: Commit and push changes
+        # Only push if changes exist
+        if: steps.changes.outputs.count > 0
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git commit -am "Regenerate target info"
+          git push origin HEAD
+
+      - name: Open pull request if needed
+        if: steps.changes.outputs.count > 0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create --base main --title "Update src/target/generated.rs" --body "Automatically regenerated in CI" --head $(git branch --show-current)

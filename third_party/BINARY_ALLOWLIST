@@ -1,0 +1,35 @@
+# 允许存在于仓库中的非文本文件（检查 C2）。格式：<sha256>  <路径>  # 原因
+# 只允许登记不会被编译、链接或打包的上游测试数据与图片。新增条目必须经过审查。
+0fae3a62075a705aabac9cf063250fae07a461065157500828c1c4721a92fb5a  third_party/rust-bitcoin/bitcoin/tests/data/mainnet_block_000000000000000000000c835b2adcaedc20fdf6ee440009c249452c726dafae.raw  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+b743c308d7e16da0c67727a790a503ed6bdaa6e39353980aa372e344942c32f4  third_party/rust-bitcoin/bitcoin/tests/data/serde/absolute_lock_time_blocks_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+6946888546957708c3fcfedf2e27c9f8e2191062ce78f7f9ce6698e1a919b633  third_party/rust-bitcoin/bitcoin/tests/data/serde/address_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+6013334e9cc1abcfa83652e6938eefa4324db7409f37fb36d8c96e843294d4d2  third_party/rust-bitcoin/bitcoin/tests/data/serde/block_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+d9e0d4c3850aa130f909e1bcafebea98a16700e02171c1df5a2fe31789d94b0f  third_party/rust-bitcoin/bitcoin/tests/data/serde/child_number_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+f92e6b276e82e77a0ed0e0746fbd9c7789a1e7aa131ba15f88572564e75472de  third_party/rust-bitcoin/bitcoin/tests/data/serde/control_block_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+d6673ebb32b768a35f0ede354b0f832f788b9b4a6c44d1bb6991dcf09e777e87  third_party/rust-bitcoin/bitcoin/tests/data/serde/ecdsa_sig_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+7874d2f1f25a8d5aed30d357908b6d7e7f4b03d9e20cd4e7d07a90dbc11d723f  third_party/rust-bitcoin/bitcoin/tests/data/serde/extended_priv_key_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+b9efa2890074802d59347aa4a9ce0f7c3c2ef093ef8ff912c475e3c1c4490a66  third_party/rust-bitcoin/bitcoin/tests/data/serde/extended_pub_key_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+6c2fc12ac3bc57d39895fc086c376888cd967630c529bdc547824a85ab2f1983  third_party/rust-bitcoin/bitcoin/tests/data/serde/private_key_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+11cb8ca879f4967f7903811de4d8cdf53f505721c60af762a2d32940c8b0027a  third_party/rust-bitcoin/bitcoin/tests/data/serde/proprietary_key_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+8444018fa9f39ab26a73d36de7a0d47780baa50992eb92d0ec53f8ae9bf003a6  third_party/rust-bitcoin/bitcoin/tests/data/serde/psbt_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+5302670a875856cc262e1eb24bcafe0e9396813d24781dee9c9153e3a04fca16  third_party/rust-bitcoin/bitcoin/tests/data/serde/public_key_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+8acf3c8666074e1173c8d83b4beb70119055c61d3c7a94da7c26b20dbcd20149  third_party/rust-bitcoin/bitcoin/tests/data/serde/raw_pair_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+bcdf9c416b5bc6a10e56f4f96c148be041134e7902ef0c6f2cbda76428f650b7  third_party/rust-bitcoin/bitcoin/tests/data/serde/relative_lock_time_blocks_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+967457182172a3de215c3e139577a1c7f2c0cf9fddd9cc2cedbfee05710219ce  third_party/rust-bitcoin/bitcoin/tests/data/serde/relative_lock_time_seconds_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+bde847b3d29f67a717699ffce9a3071e7c22d8fa50e86a6e62eb8b2c58c2ed7b  third_party/rust-bitcoin/bitcoin/tests/data/serde/script_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+559bb3f007411423b376f0ee912450a25012d6489e92d7d2bce76e6ba47dbe7f  third_party/rust-bitcoin/bitcoin/tests/data/serde/taproot_sig_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+33a5e4ed055f051b05a5cc2f30d927013cc4eeed2debcce47ab8ab8e9304d32d  third_party/rust-bitcoin/bitcoin/tests/data/serde/taptree_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+e7738bf3e3f87358742ade947f8c6c6473809fc7ce6f3159f2debd8257a8f5d8  third_party/rust-bitcoin/bitcoin/tests/data/serde/transaction_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+572cd2b26ca5511490a0013963b9141d538a09b98c59140f413ee29c9d512015  third_party/rust-bitcoin/bitcoin/tests/data/serde/transaction_ser  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+976f4c8b618d2f827ac05181be409fcb507854d87556bf8bbba1d47040e8a336  third_party/rust-bitcoin/bitcoin/tests/data/serde/txin_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+f53fed22bc7c65d760113543630f68d60dea667a294f4509306824cf1051db7e  third_party/rust-bitcoin/bitcoin/tests/data/serde/txin_ser  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+64ff882bd968fc02726620cb6b65dc107b7a5956f00985d5af42c09c1feb660f  third_party/rust-bitcoin/bitcoin/tests/data/serde/txout_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+fb399ea81daf01d92f277699c69b2b253b50f6fbf56a3a3cd63de398d2206d49  third_party/rust-bitcoin/bitcoin/tests/data/serde/u256_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+83f53d305029e47124043ed5bfacfdc6e7e2a3633be9fb44d12200843817ded7  third_party/rust-bitcoin/bitcoin/tests/data/serde/uint128_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+4e7a5e5aa6f52f5a637fc76a4de523f42429002b5e0db5b34bb76af891b5f6e7  third_party/rust-bitcoin/bitcoin/tests/data/serde/uint256_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+5b3e6da7db74cc29e1dd9cb975ed5722aa0d9abe6575b92fcc08ad223584dc8b  third_party/rust-bitcoin/bitcoin/tests/data/serde/witness_bincode  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+469b9daa241d3dafe495d2e63ccc553b3b465c0ea20f7150e7dfe7f20269bed5  third_party/rust-bitcoin/bitcoin/tests/data/testnet_block_000000000000045e0b1660b6445b5e5c5ab63c9a4f956be7e1e69be04fa4497b.raw  # rust-bitcoin 自身集成测试数据，cargo 构建路径依赖时不编译 tests/
+a6a4fc7f637449c3c4f969099acc721de07dbe39971ac75082fafe0ff5eaed33  third_party/rust-bitcoin/logo/rust-bitcoin-large.png  # 上游 README 图片，不参与构建
+c5123cf51c02933a703b766568b6927835b360513a85ec6ded44106c667521dc  third_party/rust-bitcoin/logo/rust-bitcoin.png  # 上游 README 图片，不参与构建
+5023d1117d18595d9429618eb59f2d684f710ac9c200a175b55d3e450d2a102a  third_party/shlex/fuzz/fuzz_quote_real_shell/basic-corpus/long-random  # 上游模糊测试语料，不参与构建
+01465d4ead2f71272dd0d7abe3f9609512f6b5d0d0cd862dfbca94e967022236  third_party/shlex/fuzz/fuzz_quote_real_shell/basic-corpus/short-random  # 上游模糊测试语料，不参与构建

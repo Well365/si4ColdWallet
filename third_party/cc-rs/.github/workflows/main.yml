@@ -1,0 +1,419 @@
+name: CI
+on: [push, pull_request]
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  CC_ENABLE_DEBUG_OUTPUT: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref || github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        build:
+          [
+            stable,
+            beta,
+            nightly,
+            linux32,
+            aarch64-macos,
+            x86_64-macos,
+            aarch64-ios,
+            aarch64-ios-sim,
+            x86_64-ios-sim,
+            aarch64-ios-macabi,
+            x86_64-ios-macabi,
+            win32,
+            win64,
+            mingw32,
+            mingw64,
+            windows-2019,
+          ]
+        cargo_flags: ['', '--release', '--features parallel']
+        include:
+          - build: stable
+            os: ubuntu-latest
+            rust: stable
+            target: x86_64-unknown-linux-gnu
+          - build: beta
+            os: ubuntu-latest
+            rust: beta
+            target: x86_64-unknown-linux-gnu
+          - build: nightly
+            os: ubuntu-latest
+            rust: nightly
+            target: x86_64-unknown-linux-gnu
+          - build: linux32
+            os: ubuntu-latest
+            rust: stable
+            target: i686-unknown-linux-gnu
+          - build: aarch64-macos
+            os: macos-14
+            rust: stable
+            target: aarch64-apple-darwin
+          - build: x86_64-macos
+            os: macos-13 # x86
+            rust: stable
+            target: x86_64-apple-darwin
+          - build: aarch64-ios
+            os: macos-latest
+            rust: stable
+            target: aarch64-apple-ios
+            no_run: --no-run
+          - build: aarch64-ios-sim
+            os: macos-latest
+            rust: stable
+            target: aarch64-apple-ios-sim
+            no_run: --no-run
+          - build: x86_64-ios-sim
+            os: macos-13 # x86
+            rust: stable
+            target: x86_64-apple-ios # Simulator
+            no_run: --no-run
+          - build: aarch64-ios-macabi
+            os: macos-latest
+            rust: stable
+            target: aarch64-apple-ios-macabi
+            no_run: --no-run # FIXME(madsmtm): Fix running tests
+          - build: x86_64-ios-macabi
+            os: macos-13 # x86
+            rust: stable
+            target: x86_64-apple-ios-macabi
+            no_run: --no-run # FIXME(madsmtm): Fix running tests
+          - build: cross-macos-aarch64
+            os: ubuntu-latest
+            rust: stable
+            target: aarch64-apple-darwin
+            no_run: --no-run
+          - build: cross-ios-aarch64
+            os: ubuntu-latest
+            rust: stable
+            target: aarch64-apple-ios
+            no_run: --no-run
+          - build: windows-aarch64
+            os: windows-latest
+            rust: stable
+            target: aarch64-pc-windows-msvc
+            no_run: --no-run
+          - build: win32
+            os: windows-2019
+            rust: stable-i686-msvc
+            target: i686-pc-windows-msvc
+          - build: win64
+            os: windows-latest
+            rust: stable
+            target: x86_64-pc-windows-msvc
+          - build: mingw32
+            # windows-latest, a.k.a. windows-2022, runner is equipped with
+            # a newer mingw toolchain, which appears to produce unexecutable
+            # mixed-language binaries in debug builds. Fall back to
+            # windows-2019 for now and revisit it later...
+            os: windows-2019
+            rust: stable-i686-gnu
+            target: i686-pc-windows-gnu
+          - build: mingw64
+            os: windows-latest
+            rust: stable-x86_64-gnu
+            target: x86_64-pc-windows-gnu
+          - build: windows-2019
+            os: windows-2019
+            rust: stable-x86_64
+            target: x86_64-pc-windows-msvc
+          - build: windows-clang
+            os: windows-2019
+            rust: stable
+            target: x86_64-pc-windows-msvc
+            CC: clang
+            CXX: clang++
+          - build: windows-clang-cl
+            os: windows-2019
+            rust: stable
+            target: x86_64-pc-windows-msvc
+            CC: clang-cl
+            CXX: clang-cl
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (rustup)
+        run: |
+          set -euxo pipefail
+          rustup toolchain install ${{ matrix.rust }} --no-self-update --profile minimal --target ${{ matrix.target }}
+          rustup default ${{ matrix.rust }}
+        shell: bash
+      - name: Install g++-multilib
+        run: |
+          set -e
+          # Remove the ubuntu-toolchain-r/test PPA, which is added by default.
+          # Some packages were removed, and this is causing the g++multilib
+          # install to fail. Similar issue:
+          # https://github.com/scikit-learn/scikit-learn/issues/13928.
+          sudo add-apt-repository --remove ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install g++-multilib
+        if: matrix.build == 'linux32'
+      - name: add clang to path
+        if: startsWith(matrix.build, 'windows-clang')
+        run: |
+          echo "C:\msys64\mingw64\bin" >> "$GITHUB_PATH"
+          echo -e "AR=llvm-ar\nRUSTFLAGS=-Clinker=lld-link\nCC=${CC}\nCXX=${CXX}" >> "$GITHUB_ENV"
+        shell: bash
+        env:
+          CC: ${{ matrix.CC }}
+          CXX: ${{ matrix.CXX }}
+      - name: Install llvm tools (for llvm-ar)
+        if: startsWith(matrix.build, 'cross-macos') || startsWith(matrix.build, 'cross-ios')
+        run: sudo apt-get install llvm
+      - name: Download macOS SDK
+        working-directory: ${{ runner.temp }}
+        if: startsWith(matrix.build, 'cross-macos')
+        run: |
+          wget https://github.com/phracker/MacOSX-SDKs/releases/download/11.3/MacOSX11.3.sdk.tar.xz
+          tar -xf MacOSX11.3.sdk.tar.xz
+          echo "SDKROOT=$(pwd)/MacOSX11.3.sdk" >> $GITHUB_ENV
+      - name: Download iOS SDK
+        working-directory: ${{ runner.temp }}
+        if: startsWith(matrix.build, 'cross-ios')
+        run: |
+          wget https://github.com/xybp888/iOS-SDKs/releases/download/iOS18.1-SDKs/iPhoneOS18.1.sdk.zip
+          unzip iPhoneOS18.1.sdk.zip
+          echo "SDKROOT=$(pwd)/iPhoneOS18.1.sdk" >> $GITHUB_ENV
+      - name: Set up Apple cross-compilation
+        if: startsWith(matrix.build, 'cross-macos') || startsWith(matrix.build, 'cross-ios')
+        run: |
+          # Test with clang/llvm for now, has better cross-compilation support (GCC requires downloading a different toolchain)
+          echo "CC=clang" >> $GITHUB_ENV
+          echo "CXX=clang++" >> $GITHUB_ENV
+          echo "AR=llvm-ar" >> $GITHUB_ENV
+          # Link with rust-lld
+          UPPERCASE_TARGET_NAME=$(echo "${{ matrix.target }}" | tr '[:lower:]-' '[:upper:]_')
+          echo "CARGO_TARGET_${UPPERCASE_TARGET_NAME}_LINKER=rust-lld" >> $GITHUB_ENV
+      - name: setup dev environment
+        uses: ilammy/msvc-dev-cmd@v1
+        if: startsWith(matrix.build, 'windows-clang')
+      - run: cargo update
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test ${{ matrix.no_run }} --workspace --target ${{ matrix.target }} ${{ matrix.cargo_flags }}
+      # check that there are no uncommitted changes to prevent bugs like https://github.com/rust-lang/cc-rs/issues/1411
+      - name: check clean Git workting tree
+        uses: ./.github/actions/check-clean-git-working-tree
+
+  # This is separate from the matrix above because there is no prebuilt rust-std component for these targets.
+  check-build-std:
+    name: Test build-std
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        target:
+          - x86_64h-apple-darwin
+          # FIXME(madsmtm): needs deployment target
+          # - armv7s-apple-ios
+          # FIXME(madsmtm): needs deployment target
+          # - i386-apple-ios # Simulator
+          - aarch64-apple-tvos
+          - aarch64-apple-tvos-sim
+          - x86_64-apple-tvos # Simulator
+          - aarch64-apple-watchos
+          - aarch64-apple-watchos-sim
+          - x86_64-apple-watchos-sim
+          # FIXME(madsmtm): needs deployment target
+          # - arm64_32-apple-watchos
+          - armv7k-apple-watchos
+          - aarch64-apple-visionos
+          - aarch64-apple-visionos-sim
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (rustup)
+        run: |
+          set -euxo pipefail
+          rustup toolchain install nightly --no-self-update --profile minimal
+          rustup component add rust-src --toolchain nightly
+          rustup default nightly
+        shell: bash
+      - run: cargo update
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -Z build-std=std --no-run --workspace --target ${{ matrix.target }}
+      - run: cargo test -Z build-std=std --no-run --workspace --target ${{ matrix.target }} --release
+      - run: cargo test -Z build-std=std --no-run --workspace --target ${{ matrix.target }} --features parallel
+      # check that there are no uncommitted changes to prevent bugs like https://github.com/rust-lang/cc-rs/issues/1411
+      - name: check clean Git workting tree
+        uses: ./.github/actions/check-clean-git-working-tree
+
+  check-wasm:
+    name: Test wasm
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [wasm32-unknown-unknown]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (rustup)
+        run: |
+          rustup target add ${{ matrix.target }}
+        shell: bash
+      - run: cargo update
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --no-run --target ${{ matrix.target }}
+      - run: cargo test --no-run --target ${{ matrix.target }} --release
+      - run: cargo test --no-run --target ${{ matrix.target }} --features parallel
+      # check that there are no uncommitted changes to prevent bugs like https://github.com/rust-lang/cc-rs/issues/1411
+      - name: check clean Git workting tree
+        uses: ./.github/actions/check-clean-git-working-tree
+
+  test-wasm32-wasip1-thread:
+    name: Test wasm32-wasip1-thread
+    runs-on: ubuntu-latest
+    env:
+      TARGET: wasm32-wasip1-threads
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (rustup)
+        run: |
+          rustup toolchain install nightly --no-self-update --profile minimal --target $TARGET
+
+      - name: Get latest version of wasi-sdk
+        env:
+          REPO: WebAssembly/wasi-sdk
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          VERSION="$(gh release list --repo $REPO -L 1 --json tagName --jq '.[]|.tagName')"
+          echo "WASI_TOOLCHAIN_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Install wasi-sdk
+        working-directory: ${{ runner.temp }}
+        env:
+          REPO: WebAssembly/wasi-sdk
+        run: |
+          set -euxo pipefail
+          VERSION="$WASI_TOOLCHAIN_VERSION"
+          FILE="${VERSION}.0-x86_64-linux.deb"
+          wget "https://github.com/$REPO/releases/download/${VERSION}/${FILE}"
+          sudo dpkg -i "${FILE}"
+          WASI_SDK_PATH="/opt/wasi-sdk"
+          CC="${WASI_SDK_PATH}/bin/clang"
+          echo "WASI_SDK_PATH=$WASI_SDK_PATH" >> "$GITHUB_ENV"
+          echo "CC=$CC" >> "$GITHUB_ENV"
+
+      - run: cargo update
+      - uses: Swatinem/rust-cache@v2
+        with:
+          env-vars: "WASI_TOOLCHAIN_VERSION"
+          cache-all-crates: "true"
+
+      - name: Run tests
+        run: cargo +nightly build -p $TARGET-test --target $TARGET
+
+      # check that there are no uncommitted changes to prevent bugs like https://github.com/rust-lang/cc-rs/issues/1411
+      - name: check clean Git workting tree
+        uses: ./.github/actions/check-clean-git-working-tree
+
+  cuda:
+    name: Test CUDA support
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cuda-minimal-build-11-8
+        working-directory: ${{ runner.temp }}
+        shell: bash
+        run: |
+          # https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=20.04&target_type=deb_network
+          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.0-1_all.deb
+          sudo dpkg -i cuda-keyring_1.0-1_all.deb
+          sudo apt-get update
+          sudo apt-get -y install cuda-minimal-build-11-8
+      - run: cargo update
+      - uses: Swatinem/rust-cache@v2
+      - name: Test 'cudart' feature
+        shell: bash
+        run: |
+          PATH="/usr/local/cuda/bin:$PATH" cargo test --manifest-path dev-tools/cc-test/Cargo.toml --features test_cuda
+          PATH="/usr/local/cuda/bin:$PATH" CXX=clang++ cargo test --manifest-path dev-tools/cc-test/Cargo.toml --features test_cuda
+      # check that there are no uncommitted changes to prevent bugs like https://github.com/rust-lang/cc-rs/issues/1411
+      - name: check clean Git workting tree
+        uses: ./.github/actions/check-clean-git-working-tree
+
+  msrv:
+    name: MSRV
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      MSRV: 1.63.0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: |
+          rustup toolchain install $MSRV --no-self-update --profile minimal
+          rustup toolchain install nightly --no-self-update --profile minimal
+          rustup default $MSRV
+        shell: bash
+      - name: Create Cargo.lock with minimal version
+        run: cargo +nightly update -Zminimal-versions
+      - uses: Swatinem/rust-cache@v2
+      - run: env -u CARGO_REGISTRIES_CRATES_IO_PROTOCOL cargo check --lib -p cc --locked
+      - run: env -u CARGO_REGISTRIES_CRATES_IO_PROTOCOL cargo check --lib -p cc --locked --all-features
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --no-self-update --profile minimal --component rustfmt
+          rustup default stable
+        shell: bash
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --no-deps
+      # check that there are no uncommitted changes to prevent bugs like https://github.com/rust-lang/cc-rs/issues/1411
+      - name: check clean Git workting tree
+        uses: ./.github/actions/check-clean-git-working-tree
+
+  rustfmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --no-self-update --profile minimal --component rustfmt
+          rustup default stable
+        shell: bash
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt -- --check
+
+  semver-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Check semver
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+
+  # Dummy job to have a stable name for the "all tests pass" requirement
+  tests-pass:
+    name: Tests pass
+    needs:
+      - test
+      - check-build-std
+      - check-wasm
+      - test-wasm32-wasip1-thread
+      - cuda
+      - msrv
+      - clippy
+      - rustfmt
+      - semver-checks
+    if: always() # always run even if dependencies fail
+    runs-on: ubuntu-latest
+    steps:
+      # fail if ANY dependency has failed or cancelled
+      - if: "contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')"
+        run: exit 1
+      - run: exit 0

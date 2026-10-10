@@ -1,0 +1,123 @@
+# 第三方源码登记（规则 R1）。由 tools/vendor/import.sh 维护；人工修改 review 字段。
+
+[[source]]
+name = "rust-bitcoin"
+upstream = "https://github.com/rust-bitcoin/rust-bitcoin"
+ref = "refs/tags/bitcoin-0.32.102"
+commit = "ff5dc044d71a3ef8d59b29aa0328ffef9630d6d0"
+license = "CC0-1.0"
+tree_sha256 = "b88da9793a88d9721175993b91739c4d3b307ea5f7b214c1a1ffc188f79d2059"
+imported_at = "2026-10-10"
+review = "PENDING"
+
+[[source]]
+name = "rust-secp256k1"
+upstream = "https://github.com/rust-bitcoin/rust-secp256k1"
+ref = "refs/tags/secp256k1-0.29.1"
+commit = "1a1fc57fb99a5a42b996d3cdde5c48fda3797709"
+license = "CC0-1.0 (libsecp256k1: MIT)"
+tree_sha256 = "8911272551b9336a2f49445e4f5eccce78461cee865684258b021430c9bad605"
+imported_at = "2026-10-10"
+review = "PENDING"
+
+[[source]]
+name = "hex-conservative"
+upstream = "https://github.com/rust-bitcoin/hex-conservative"
+ref = "refs/tags/hex-conservative-0.2.3"
+commit = "e17b9b2abf55df1d4a1c4d3ca2f9d619660ecb75"
+license = "CC0-1.0"
+tree_sha256 = "778ba2dc10ed6d0ec492b9733ce40d20ec209ddee1912f07662abb82ab9b5870"
+imported_at = "2026-10-10"
+review = "PENDING"
+
+[[source]]
+name = "arrayvec"
+upstream = "https://github.com/bluss/arrayvec"
+ref = "refs/tags/0.7.6"
+commit = "0aede877fe0bfb1ba5e3c2024df8c0958d503a83"
+license = "MIT OR Apache-2.0"
+tree_sha256 = "e3f4879640669b992a14bf42c6635711e37af5cd47d414ed06ea05b91efb42f7"
+imported_at = "2026-10-10"
+review = "PENDING"
+
+[[source]]
+name = "rust-bech32"
+upstream = "https://github.com/rust-bitcoin/rust-bech32"
+ref = "refs/tags/v0.11.0"
+commit = "c2aac494b9932802b99ed648aac34be0822d63e1"
+license = "MIT"
+tree_sha256 = "40ffc9725fd2c01bfee873c1d483e224b8aa1170544ebc611bd9df4b8c8a35cc"
+imported_at = "2026-10-10"
+review = "PENDING"
+
+[[source]]
+name = "cc-rs"
+upstream = "https://github.com/rust-lang/cc-rs"
+ref = "refs/tags/cc-v1.2.19"
+commit = "d7d29fc4e390aadefa1969211f79935d6ba10d70"
+license = "MIT OR Apache-2.0"
+tree_sha256 = "2b0dbaa3608eedd7f68b3005743624c40db028944fdcb1ea7ad6a852e8e87475"
+imported_at = "2026-10-10"
+review = "PENDING"
+
+[[source]]
+name = "shlex"
+upstream = "https://github.com/comex/rust-shlex"
+ref = "refs/tags/1.3.0"
+commit = "4a0724b0b62ef715467875b040a890ce75a8a829"
+license = "MIT OR Apache-2.0"
+tree_sha256 = "0165db4b37f8a24483f3040c4c24c24a87d0850ace38a4259c6a542704169a38"
+imported_at = "2026-10-10"
+review = "PENDING"
+
+[[source]]
+name = "python-mnemonic"
+upstream = "https://github.com/trezor/python-mnemonic"
+ref = "refs/tags/v0.21"
+commit = "d4b106cdec196202d44628026fcb8fedc8ea50c1"
+license = "MIT"
+tree_sha256 = "673f7dd189b0baaff28ca5f6079c1ab5a859dceeb37027ae2ce82baf331e1a1b"
+imported_at = "2026-10-10"
+review = "PENDING"
+
+[[source]]
+name = "bc-ur"
+upstream = "https://github.com/BlockchainCommons/bc-ur"
+ref = "refs/heads/master"
+commit = "4479fb81b2350ae8bafa042a5572b9c64c2c32ca"
+license = "BSD-2-Clause-Patent"
+tree_sha256 = "1c0ed1f4f22b3a44b032db4ab040c61f5c624d7c1db63773acdcc151381df16e"
+imported_at = "2026-10-10"
+review = "PENDING"
+
+[[source]]
+name = "bc-research"
+upstream = "https://github.com/BlockchainCommons/Research"
+ref = "refs/heads/master"
+commit = "e4a4fbb186e2e7625ccdf7149aec4f0a5adaf850"
+license = "BSD-2-Clause-Patent"
+paths = "LICENSE papers/bcr-2020-005-ur.md papers/bcr-2020-006-urtypes.md papers/bcr-2020-007-hdkey.md papers/bcr-2020-012-bytewords.md papers/bcr-2020-015-account.md papers/bcr-2024-001-multipart-ur.md"
+tree_sha256 = "5bf0f9f7dff511f784a28bdd0d1be597c55aa376a8a042befdd0d776c50e0a40"
+imported_at = "2026-10-10"
+review = "PENDING"
+
+[[source]]
+name = "keccak"
+upstream = "https://github.com/RustCrypto/sponges"
+ref = "refs/tags/keccak-v0.1.2"
+commit = "b59a4d5aa93725dfa7d3ebcba2dbf79db97f621b"
+license = "Apache-2.0 OR MIT"
+paths = "keccak"
+tree_sha256 = "58e7c68332d221d3d073ebb89f86650ab6edc55397c74a83f181c9d40af65dcd"
+imported_at = "2026-10-10"
+review = "PENDING"
+
+[[source]]
+name = "ed25519-compact"
+upstream = "https://github.com/jedisct1/rust-ed25519-compact"
+ref = "refs/tags/2.4.2"
+commit = "eb269493b71c1363d1389ab9aa98e4a5bed8d7af"
+license = "MIT"
+tree_sha256 = "a28c22d66798431bef32a1a800eaa8a4b08f705921dc9bab40d953e84f24ef4a"
+imported_at = "2026-10-10"
+review = "PENDING"

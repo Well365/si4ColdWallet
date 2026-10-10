@@ -1,0 +1,23 @@
+name: Check style and dist build
+
+on: [push, pull_request]
+
+jobs:
+  check_style:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+    - name: Install dependencies
+      run: |
+        python3 -m pip install poetry
+        poetry install
+    - name: Check style
+      run: poetry run make style_check
+    - name: Check dist
+      run: poetry run make
