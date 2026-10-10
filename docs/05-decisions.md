@@ -239,3 +239,19 @@
 - **验证**：独立 Python 实现 `tools/testvectors/chain_addresses.py` 增加两种方案的向量；`aw-e2e/tests/addresses.rs`、`aw-ffi-signer` 测试与之逐字比对；越界、未知方案、其他链带非零方案均返回 `AW_ERR_BAD_ARGUMENT`。
 - **未做**：Solana 交易签名（P2c）实现时，签名请求里的路径必须能表达三种方案，签名机按完整路径匹配；EVM 的 Ledger Live 方案 `m/44'/60'/N'/0/0`（第 1 个地址与本机相同，第 2 个起不同）与 MEW 旧方案 `m/44'/60'/0'/N` 暂不支持，需要时同样加"账户类型"。
 
+## D35 · 观察机发送体系：节点登记簿、手续费档位、构造前核对余额（2026-10-11，用户要求）
+
+- **背景**：用户要求观察机"列出发送的节点和 gas 选择，是一个可以发送的成型体系"。原来每条 EVM 链只有一个内置节点加一个"链ID=URL"文本框，手续费全自动（2 × 基础费 + 节点建议优先费、gas 上限写死 21 000 / 100 000）；比特币只有一个 Esplora 地址框和一个费率框。
+- **决定**：
+  1. **节点登记簿**（`ios/Watcher/Watcher/Nodes.swift`）：每个网络一组内置公共节点（无需密钥，2026-10-11 实测可用：ETH PublicNode / dRPC / Flashbots Protect（标为"建议只用于广播"）；BSC BNB Chain 官方 / Defibit / Ninicoin / PublicNode / dRPC；Sepolia PublicNode / dRPC；BSC 测试网 PublicNode / BNB Chain 官方 / dRPC；BTC mempool.space / Blockstream；testnet4 mempool.space）+ 用户添加的节点（只许 https、不许带用户名密码，添加前先体检）。节点页逐个体检：EVM 核对链 ID 并取区块高度与延迟，Esplora 核对创世区块（主网 / testnet4）并取区块高度；比最高的落后 5 个区块以上标橙色。旧设置一次性迁入。
+  2. **广播可另选节点**：签名回来后可以选任何一个节点广播，失败可换节点重试；广播前再核对一次链 ID / 创世区块；EVM 仍核对节点返回的交易哈希。
+  3. **EVM 手续费三档**（Rust `aw-chain-evm::fees`，FFI `aw_evm_fee_tiers`，全部检查算术）：取 `eth_feeHistory`（10 个区块，10/50/90 百分位优先费）与 `eth_maxPriorityFeePerGas`；慢 = 基础费 × 5/4 + p10 中位数（不超过标准档）、标准 = 基础费 × 3/2 + max(p50 中位数, 节点建议值)、快 = 基础费 × 2 + max(p90 中位数, 标准档)；中位数偶数个取较高者；基础费与慢档优先费都为 0（BNB 链）时慢档取标准档；全为 0 报错。节点不支持 `eth_feeHistory` 时退回最新区块基础费 + 节点建议值；没有基础费的链按 `eth_gasPrice` × 1、5/4、3/2。另可"自定义"（最高单价、优先费，gwei，由 Rust 解析，优先费不得高于最高单价）。
+  4. **gas 上限**：转给普通地址的原生币转账用 21 000；代币或合约按 `eth_estimateGas` × 1.2；估算失败用默认值并提示；可以手填。
+  5. **构造前核对余额**（Rust `watch::check_funds`，FFI `aw_evm_check_funds`）：原生币 ≥ 金额（原生币转账时）+ gas 上限 × 最高单价；代币转账还要代币余额 ≥ 数量。不够就不生成签名请求，直接说明差在哪（`AW_ERR_TX_REJECT_BASE - 19 / - 21`）。
+  6. **显示"总计最多扣除"**（审计 P1-11）：签名机与观察机的交易显示都加一行"总计最多扣除（金额 + 最高手续费）"，代币转账为"最多扣除（仅手续费）"——金额与手续费分行，另给总数，不会把 gas 当成金额。
+  7. **比特币费率档位**：mempool.space 用 `v1/fees/recommended`（快 / 标准 / 慢 / 经济），其他 Esplora 用 `fee-estimates`（1 / 3 / 6 / 144 个区块），一律向上取整到整数 sat/vB 且至少 1；可自定义。构造后显示实际手续费、交易大小与"总计扣除"。
+  8. 手动 nonce（替换或加速卡住的交易）放在"高级"里。
+- **安全边界**：节点仍然不可信——它给的余额、nonce、手续费只用于构造与提示；交易内容（含手续费）由签名机独立审查，单价、优先费、手续费占比异常有告警，"总计最多扣除"给出最坏情况。公共节点能看到查询的地址，要隐私就加自建节点。
+- **ABI**：`aw-ffi-watch` 加两个函数，ABI 版本 3 → 4；`aw-ffi-signer` 的 `aw_session_address` 在 D34 增加了 `scheme` 参数，ABI 版本 4 → 5（Swift 侧同步）。
+- **未做**：SOL / NEAR / TRON 的发送要等签名机实现这些链的签名（P2c / P2d）；EIP-1559 以外的旧式交易格式（观察机只构造 type-2 交易）；多节点交叉核对余额（目前单节点 + 用户可手动换节点对照）。
+

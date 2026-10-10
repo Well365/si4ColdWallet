@@ -50,8 +50,8 @@ final class EvmAccount {
     func buildTransfer(network: EvmNetwork, nonce: UInt64, fees: EvmFees, gasLimit: UInt64,
                        to: String, amount: String, token: EvmToken?) throws -> EvmPending {
         let value = try EvmAmount.parse(amount, decimals: token?.decimals ?? 18)
-        let prio = EvmAmount.bytes(fees.maxPriorityFee)
-        let maxFee = EvmAmount.bytes(fees.maxFee)
+        let prio = fees.maxPriorityFee
+        let maxFee = fees.maxFee
         let toBytes = Array(to.utf8)
         let tokenBytes = Array((token?.contract ?? "").utf8)
         let uuid = UUID().uuid
@@ -161,11 +161,81 @@ enum EvmAmount {
     static func bytes(_ v: UInt64) -> [UInt8] {
         [UInt8](repeating: 0, count: 24) + withUnsafeBytes(of: v.bigEndian) { Array($0) }
     }
+
+    /// 32 字节大端整数 → JSON-RPC 十六进制数量（"0x0"、"0x1a…"）
+    static func quantity(_ b: [UInt8]) -> String {
+        let hex = b.map { String(format: "%02x", $0) }.joined().drop { $0 == "0" }
+        return "0x" + (hex.isEmpty ? "0" : String(hex))
+    }
+
+    /// u64 wei → 按小数位格式化的文本（由 Rust 格式化，不用浮点）
+    static func format(_ v: UInt64, decimals: UInt32) -> String {
+        format(hexQuantity: "0x" + String(v, radix: 16), decimals: decimals) ?? "\(v)"
+    }
+
+    /// 手续费三档（决策 D35，由 Rust 用检查算术计算）：`history.nextBaseFee` 为 nil 时按旧式链处理
+    static func feeTiers(history: EvmRPC.FeeHistory, suggested: UInt64, gasPrice: UInt64, gasLimit: UInt64) throws -> [EvmFeeTier] {
+        var p: UnsafeMutablePointer<UInt8>?
+        var l = 0
+        let rc: Int32
+        if let base = history.nextBaseFee {
+            rc = history.rewards.withUnsafeBufferPointer {
+                aw_evm_fee_tiers(1, base, $0.baseAddress, $0.count, suggested, gasLimit, &p, &l)
+            }
+        } else {
+            rc = aw_evm_fee_tiers(0, 0, nil, 0, gasPrice, gasLimit, &p, &l)
+        }
+        try WatchCore.check(rc)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode([EvmFeeTier].self, from: Data(WatchCore.takeBuffer(p, l)))
+    }
+
+    /// 构造前核对余额（决策 D35）：原生币要够"金额 + gas 上限 × 最高单价"（代币转账只算手续费），代币要够数量。
+    /// 不够时抛出 AW_ERR_EVM_NATIVE_SHORT / AW_ERR_EVM_TOKEN_SHORT
+    static func checkFunds(native: String, token: String?, value: [UInt8], gasLimit: UInt64, maxFee: [UInt8]) throws {
+        let n = Array(native.utf8)
+        let t = Array((token ?? "").utf8)
+        let rc = n.withUnsafeBufferPointer { nb in
+            t.withUnsafeBufferPointer { tb in
+                value.withUnsafeBufferPointer { vb in
+                    maxFee.withUnsafeBufferPointer { fb in
+                        aw_evm_check_funds(nb.baseAddress, nb.count, tb.baseAddress, tb.count, vb.baseAddress, gasLimit, fb.baseAddress)
+                    }
+                }
+            }
+        }
+        try WatchCore.check(rc)
+    }
 }
 
+/// 构造交易用的手续费：32 字节大端整数（wei / gas）
 struct EvmFees {
+    let maxPriorityFee: [UInt8]
+    let maxFee: [UInt8]
+
+    init(maxPriorityFee: UInt64, maxFee: UInt64) {
+        self.maxPriorityFee = EvmAmount.bytes(maxPriorityFee)
+        self.maxFee = EvmAmount.bytes(maxFee)
+    }
+
+    init(maxPriorityFee: [UInt8], maxFee: [UInt8]) {
+        self.maxPriorityFee = maxPriorityFee
+        self.maxFee = maxFee
+    }
+}
+
+/// 一档手续费（与 Rust aw_evm_fee_tiers 的输出一一对应）
+struct EvmFeeTier: Decodable, Identifiable, Hashable {
+    let speed: String
+    let label: String
     let maxPriorityFee: UInt64
     let maxFee: UInt64
+    let maxPriorityGwei: String
+    let maxFeeGwei: String
+    /// gas 上限 × 最高单价（原生币单位文本）
+    let maxCost: String
+    var id: String { speed }
 }
 
 struct EvmToken: Hashable, Identifiable {
@@ -179,7 +249,8 @@ struct EvmNetwork: Hashable, Identifiable {
     let name: String
     let chainId: UInt64
     let symbol: String
-    let defaultRPC: String
+    /// 内置节点（决策 D35：都是无需密钥的公共节点，2026-10-11 实测可用；用户可在节点页增删）
+    let nodes: [Node]
     /// 区块浏览器根地址（以 / 结尾）
     let explorer: String
     let tokens: [EvmToken]
@@ -190,15 +261,28 @@ struct EvmNetwork: Hashable, Identifiable {
 
     static let all: [EvmNetwork] = [
         EvmNetwork(name: "Sepolia 测试网", chainId: 11_155_111, symbol: "SepoliaETH",
-                   defaultRPC: "https://ethereum-sepolia-rpc.publicnode.com", explorer: "https://sepolia.etherscan.io/", tokens: []),
+                   nodes: [Node(name: "PublicNode", url: "https://ethereum-sepolia-rpc.publicnode.com", builtin: true),
+                           Node(name: "dRPC", url: "https://sepolia.drpc.org", builtin: true)],
+                   explorer: "https://sepolia.etherscan.io/", tokens: []),
         EvmNetwork(name: "BNB Smart Chain 测试网", chainId: 97, symbol: "tBNB",
-                   defaultRPC: "https://bsc-testnet-rpc.publicnode.com", explorer: "https://testnet.bscscan.com/", tokens: []),
+                   nodes: [Node(name: "PublicNode", url: "https://bsc-testnet-rpc.publicnode.com", builtin: true),
+                           Node(name: "BNB Chain 官方", url: "https://data-seed-prebsc-1-s1.bnbchain.org:8545", builtin: true),
+                           Node(name: "dRPC", url: "https://bsc-testnet.drpc.org", builtin: true)],
+                   explorer: "https://testnet.bscscan.com/", tokens: []),
         EvmNetwork(name: "Ethereum 主网", chainId: 1, symbol: "ETH",
-                   defaultRPC: "https://ethereum-rpc.publicnode.com", explorer: "https://etherscan.io/",
+                   nodes: [Node(name: "PublicNode", url: "https://ethereum-rpc.publicnode.com", builtin: true),
+                           Node(name: "dRPC", url: "https://eth.drpc.org", builtin: true),
+                           Node(name: "Flashbots Protect", url: "https://rpc.flashbots.net", builtin: true, broadcastOnly: true)],
+                   explorer: "https://etherscan.io/",
                    tokens: [EvmToken(symbol: "USDT", contract: "0xdAC17F958D2ee523a2206206994597C13D831ec7", decimals: 6),
                             EvmToken(symbol: "USDC", contract: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6)]),
         EvmNetwork(name: "BNB Smart Chain 主网", chainId: 56, symbol: "BNB",
-                   defaultRPC: "https://bsc-rpc.publicnode.com", explorer: "https://bscscan.com/",
+                   nodes: [Node(name: "BNB Chain 官方", url: "https://bsc-dataseed.bnbchain.org", builtin: true),
+                           Node(name: "Defibit", url: "https://bsc-dataseed1.defibit.io", builtin: true),
+                           Node(name: "Ninicoin", url: "https://bsc-dataseed1.ninicoin.io", builtin: true),
+                           Node(name: "PublicNode", url: "https://bsc-rpc.publicnode.com", builtin: true),
+                           Node(name: "dRPC", url: "https://bsc.drpc.org", builtin: true)],
+                   explorer: "https://bscscan.com/",
                    tokens: [EvmToken(symbol: "USDT", contract: "0x55d398326f99059fF775485246999027B3197955", decimals: 18),
                             EvmToken(symbol: "USDC", contract: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", decimals: 18)]),
     ]

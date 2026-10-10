@@ -1,0 +1,27 @@
+@startgantt overview
+' airgap-wallet 全部阶段进度（2026-10-11）。数字来自本机测试与提交记录。
+title airgap-wallet 进度总览（2026-10-11）
+skinparam defaultFontName "PingFang SC"
+project starts 2026-10-08
+[P0 范围与威胁模型] starts 2026-10-08 and lasts 1 day
+[P0 范围与威胁模型] is 100% completed
+[P1 工具链、供应链、BTC 闭环] starts 2026-10-08 and lasts 2 days
+[P1 工具链、供应链、BTC 闭环] is 100% completed
+[P2a EVM（转账、代币、EIP-712）] starts 2026-10-09 and lasts 2 days
+[P2a EVM（转账、代币、EIP-712）] is 100% completed
+[P2b 随机数 + 各链地址] starts 2026-10-10 and lasts 1 day
+[P2b 随机数 + 各链地址] is 100% completed
+[安全审计 + 两轮修复（P0 1–3）] starts 2026-10-10 and lasts 2 days
+[安全审计 + 两轮修复（P0 1–3）] is 100% completed
+[D34 Solana Ledger Live 路径] starts 2026-10-11 and lasts 1 day
+[D34 Solana Ledger Live 路径] is 100% completed
+[W1 观察机发送体系（节点 + gas）] starts 2026-10-11 and lasts 1 day
+[W1 观察机发送体系（节点 + gas）] is 90% completed
+[P0-4 十二个库两人人工审查] starts 2026-10-12 and lasts 7 days
+[P0-4 十二个库两人人工审查] is 0% completed
+[P0-4 十二个库两人人工审查] is colored in LightCoral
+[P2c Solana 交易签名] starts 2026-10-12 and lasts 4 days
+[P2c Solana 交易签名] is 0% completed
+[P2d TRON / NEAR / DOGE 交易签名] starts 2026-10-16 and lasts 6 days
+[P2d TRON / NEAR / DOGE 交易签名] is 0% completed
+@endgantt

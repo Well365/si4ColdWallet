@@ -3,7 +3,7 @@ import Foundation
 
 /// 观察机 Rust 核心的 Swift 封装（只含公钥与交易构造，不含任何私钥代码）。
 enum WatchCore {
-    static let expectedABI: UInt32 = 3
+    static let expectedABI: UInt32 = 4
 
     struct Failure: Error {
         let code: Int32
@@ -11,6 +11,7 @@ enum WatchCore {
             switch code {
             case AW_ERR_TX_REJECT_BASE - 19: return "余额不足（含手续费）"
             case AW_ERR_TX_REJECT_BASE - 20: return "UTXO 与本账户地址不符"
+            case AW_ERR_TX_REJECT_BASE - 21: return "代币余额不足"
             case AW_ERR_TX_REJECT_BASE - 17: return "签名机返回的交易与发出的不一致，拒绝"
             case AW_ERR_TX_REJECT_BASE - 18: return "签名无效，拒绝"
             case AW_ERR_UR_OTHER_SET: return "扫到了另一组二维码，请只扫同一组"

@@ -5,8 +5,18 @@ import Foundation
 /// 签名机还会再次核对前序交易哈希与金额（威胁 T5）。
 struct Esplora {
     let base: URL
+    var timeout: TimeInterval = 20
 
-    static let defaultTestnet = URL(string: "https://mempool.space/testnet4/api")!
+    /// 内置节点（决策 D35）；用户可在节点页添加自己的 electrs / mempool 实例
+    static let mainnetNodes = [
+        Node(name: "mempool.space", url: "https://mempool.space/api", builtin: true),
+        Node(name: "Blockstream", url: "https://blockstream.info/api", builtin: true),
+    ]
+    static let testnetNodes = [
+        Node(name: "mempool.space testnet4", url: "https://mempool.space/testnet4/api", builtin: true),
+    ]
+    static let mainnetGenesis = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
+    static let testnet4Genesis = "00000000da84f2bafbbc53dee25a72ae507ff4914b867c565be350b0da8bf043"
 
     private struct RawUTXO: Decodable {
         let txid: String
@@ -20,15 +30,26 @@ struct Esplora {
         let mempoolStats: Stats
     }
 
+    /// mempool.space 的推荐费率（sat/vB）
     struct Fees: Decodable {
         let fastestFee: UInt64
         let halfHourFee: UInt64
         let hourFee: UInt64
+        let economyFee: UInt64?
+        let minimumFee: UInt64?
+    }
+
+    /// 一档费率
+    struct FeeTier: Identifiable, Hashable {
+        let key: String
+        let label: String
+        let satPerVb: UInt64
+        var id: String { key }
     }
 
     private func get(_ path: String) async throws -> Data {
         var req = URLRequest(url: base.appending(path: path))
-        req.timeoutInterval = 20
+        req.timeoutInterval = timeout
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
         return data
@@ -56,8 +77,43 @@ struct Esplora {
         return out
     }
 
+    func tipHeight() async throws -> UInt64 {
+        let text = String(decoding: try await get("blocks/tip/height"), as: UTF8.self)
+        guard let h = UInt64(text.trimmingCharacters(in: .whitespacesAndNewlines)) else { throw URLError(.cannotParseResponse) }
+        return h
+    }
+
+    /// 创世区块哈希：用来确认节点确实是主网或 testnet4
+    func genesisHash() async throws -> String {
+        String(decoding: try await get("block-height/0"), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     func recommendedFees() async throws -> Fees {
         try decoder.decode(Fees.self, from: try await get("v1/fees/recommended"))
+    }
+
+    /// 费率档位（决策 D35）：mempool.space 用推荐接口；其他 Esplora 用 fee-estimates（按确认区块数）。
+    /// 一律向上取整到整数 sat/vB，至少 1
+    func feeTiers() async throws -> [FeeTier] {
+        if let f = try? await recommendedFees() {
+            return [
+                FeeTier(key: "fast", label: "快（约 10 分钟）", satPerVb: max(1, f.fastestFee)),
+                FeeTier(key: "standard", label: "标准（约 30 分钟）", satPerVb: max(1, f.halfHourFee)),
+                FeeTier(key: "slow", label: "慢（约 1 小时）", satPerVb: max(1, f.hourFee)),
+                FeeTier(key: "economy", label: "经济（不赶时间）", satPerVb: max(1, f.economyFee ?? f.hourFee)),
+            ]
+        }
+        let est = try JSONDecoder().decode([String: Double].self, from: try await get("fee-estimates"))
+        func at(_ blocks: [Int]) -> UInt64 {
+            let v = blocks.lazy.compactMap { est[String($0)] }.first ?? 1
+            return max(1, UInt64(min(v.rounded(.up), 100_000)))
+        }
+        return [
+            FeeTier(key: "fast", label: "快（约 1 个区块）", satPerVb: at([1, 2])),
+            FeeTier(key: "standard", label: "标准（约 3 个区块）", satPerVb: at([3, 4])),
+            FeeTier(key: "slow", label: "慢（约 6 个区块）", satPerVb: at([6, 7])),
+            FeeTier(key: "economy", label: "经济（约 1 天）", satPerVb: at([144, 504])),
+        ]
     }
 
     func broadcast(txHex: String) async throws -> String {

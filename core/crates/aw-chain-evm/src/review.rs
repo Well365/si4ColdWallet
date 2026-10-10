@@ -782,6 +782,21 @@ fn describe_tx(tx: &UnsignedTx, own: &[u8; 20], index: u32) -> Result<Display, E
         );
     }
     fee_rows(&mut d, tx, &c.symbol)?;
+    // 审计 P1-11：金额与手续费分行显示之外，再给出这笔交易最多从账户扣除的原生币总数，
+    // 避免把手续费当成金额或漏看（代币转账时原生币只扣手续费，代币数量另见上面一行）
+    let total = tx
+        .value
+        .checked_add(tx.max_fee()?)
+        .ok_or(EvmError::Overflow)?;
+    d.row(
+        if tx.value.is_zero() {
+            "最多扣除（仅手续费）"
+        } else {
+            "总计最多扣除（金额 + 最高手续费）"
+        },
+        amount(total, &c.symbol),
+        Style::Amount,
+    );
     Ok(d)
 }
 

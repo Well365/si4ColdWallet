@@ -19,6 +19,8 @@ mod typed_known;
 pub mod typed_review;
 pub mod uint;
 
+#[cfg(feature = "watch")]
+pub mod fees;
 #[cfg(feature = "signing")]
 pub mod sign;
 #[cfg(feature = "watch")]

@@ -204,6 +204,15 @@ fn legacy_bsc_and_personal_message() {
     let (r, sig) = sign(&secp, &s, &req).unwrap();
     assert_eq!(r.display.chain, "BNB Smart Chain");
     assert!(r.display.rows.iter().any(|x| x.value == "0.05 BNB"));
+    // 审计 P1-11：金额 0.05 + 最高手续费 21000 × 3 gwei = 0.000063，总计最多扣除 0.050063
+    assert!(
+        r.display
+            .rows
+            .iter()
+            .any(|x| x.label.starts_with("总计最多扣除") && x.value == "0.050063 BNB"),
+        "{:?}",
+        r.display.rows
+    );
     assert!([147, 148].contains(&sig.signature[64])); // v = 56×2 + 35 + recid
     let raw = finalize(&secp, &w, &req, &sig).unwrap();
     assert_eq!(rlp::decode(&raw).unwrap().list().unwrap().len(), 9);

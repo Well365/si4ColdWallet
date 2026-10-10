@@ -8,11 +8,13 @@ struct AccountView: View {
     @State private var nextChange: UInt32 = 0
     @State private var loading = false
     @State private var error: String?
-    @AppStorage("esplora-base") private var baseString = Esplora.defaultTestnet.absoluteString
+    @ObservedObject private var book = NodeBook.shared
 
+    private var nodeNet: NodeNetwork { .bitcoin(testnet: account.isTestnet) }
+
+    /// 当前节点（查询、获取费率；广播时可以另选）
     private var esplora: Esplora? {
-        guard let url = URL(string: baseString), url.scheme == "https" else { return nil }
-        return Esplora(base: url)
+        NodeBook.validURL(book.current(nodeNet).url).map { Esplora(base: $0) }
     }
 
     private var balance: UInt64 { utxos.reduce(0) { $0 + $1.value } }
@@ -45,14 +47,12 @@ struct AccountView: View {
                 LabeledContent("余额", value: "\(balance) 聪（\(utxos.count) 个 UTXO）")
                 Button(loading ? "查询中…" : "刷新余额") { Task { await refresh() } }.disabled(loading || esplora == nil)
                 NavigationLink("付款") {
-                    PayView(account: account, utxos: utxos, changeIndex: nextChange, esplora: esplora)
+                    PayView(account: account, utxos: utxos, changeIndex: nextChange, esplora: esplora, net: nodeNet)
                 }
                 .disabled(utxos.isEmpty)
             }
             Section("设置") {
-                TextField("Esplora 接口（https）", text: $baseString)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    .font(.footnote)
+                NodeSummaryRow(net: nodeNet)
                 Button("删除此账户", role: .destructive) { onRemove() }
             }
             if let error { Section { Text(error).foregroundStyle(.red) } }

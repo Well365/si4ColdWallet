@@ -82,6 +82,20 @@ int32_t  aw_evm_build_message(const AwEvmAccount *a, uint32_t index, uint8_t kin
                               AwEvmPending **out_pending, uint8_t **out_json, size_t *out_json_len);
 /* "0x…" 原始交易的交易哈希（核对节点返回值） */
 int32_t  aw_evm_tx_hash(const uint8_t *hex, size_t len, uint8_t **out, size_t *out_len);
+/* 手续费三档（D35）。EIP-1559 链：has_base_fee = 1，base_fee 为下一区块基础费，rewards 为 eth_feeHistory
+ * 的 reward 展平（每个区块 3 个：10/50/90 百分位，rewards_len 为 3 的倍数且 ≤ 192），node_price 为
+ * eth_maxPriorityFeePerGas；旧式链：has_base_fee = 0、rewards_len = 0，node_price 为 eth_gasPrice。
+ * 输出 JSON 数组（慢、标准、快）：{speed, label, max_priority_fee, max_fee（wei 整数）, max_priority_gwei,
+ * max_fee_gwei, max_cost（gas_limit × max_fee，原生币单位文本）} */
+int32_t  aw_evm_fee_tiers(uint8_t has_base_fee, uint64_t base_fee, const uint64_t *rewards, size_t rewards_len,
+                          uint64_t node_price, uint64_t gas_limit, uint8_t **out_json, size_t *out_len);
+/* 构造前核对余额（D35）：native_hex / token_hex 为 JSON-RPC 十六进制数量（原生币转账 token_len = 0）；
+ * value32、max_fee32 为 32 字节大端整数。原生币不够付"金额 + gas_limit × max_fee"（代币转账只算手续费）
+ * 返回 AW_ERR_EVM_NATIVE_SHORT；代币不够返回 AW_ERR_EVM_TOKEN_SHORT */
+#define AW_ERR_EVM_NATIVE_SHORT (AW_ERR_TX_REJECT_BASE - 19)
+#define AW_ERR_EVM_TOKEN_SHORT  (AW_ERR_TX_REJECT_BASE - 21)
+int32_t  aw_evm_check_funds(const uint8_t *native_hex, size_t native_len, const uint8_t *token_hex, size_t token_len,
+                            const uint8_t *value32, uint64_t gas_limit, const uint8_t *max_fee32);
 
 /* ---- 动画二维码 ---- */
 AwUrDecoder *aw_ur_decoder_new(void);

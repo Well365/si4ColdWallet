@@ -4,15 +4,19 @@
 //! 用户可以逐行对照。签名回来后核对请求号、恢复地址与低 s 值，才拼出可广播交易。
 
 use aw_chain_evm::account_ur::{account_from_hdkey, account_to_hdkey};
+use aw_chain_evm::fees::{eip1559_tiers, legacy_tiers, Tier, MAX_HISTORY_BLOCKS};
 use aw_chain_evm::request::{decode_signature, encode_request, DataType, SignRequest};
 use aw_chain_evm::review::review;
 use aw_chain_evm::uint::U256;
-use aw_chain_evm::watch::{build_eip1559, build_request, erc20_transfer, finalize, Eip1559};
+use aw_chain_evm::watch::{
+    build_eip1559, build_request, check_funds, erc20_transfer, finalize, Eip1559, Funds,
+};
 use aw_chain_evm::{checksum_address, parse_address, Account, EvmError};
 use aw_common::display::Display;
+use aw_common::json::Json;
 use aw_ffi_common::{
     clear_out, decoded_ur, hand_out, input, new_encoder, ur_error_code, AwUrDecoder, AwUrEncoder,
-    AW_ERR_BAD_ARGUMENT, AW_ERR_EVM_REJECT_BASE, AW_ERR_NULL_POINTER, AW_OK,
+    AW_ERR_BAD_ARGUMENT, AW_ERR_EVM_REJECT_BASE, AW_ERR_NULL_POINTER, AW_ERR_TX_REJECT_BASE, AW_OK,
 };
 use aw_ur::registry::{decode_hdkey, encode_hdkey, Style};
 use bitcoin::secp256k1::{Secp256k1, VerifyOnly};
@@ -239,6 +243,138 @@ pub unsafe extern "C" fn aw_evm_format_quantity(
         Ok(v) => unsafe { hand_out(v.format_units(decimals).into_bytes(), out, out_len) },
         Err(e) => e,
     }
+}
+
+/// 原生币不够付"金额 + 最高手续费"（与 BTC 的"余额不足（含手续费）"同一个码）
+pub const AW_ERR_EVM_NATIVE_SHORT: i32 = AW_ERR_TX_REJECT_BASE - 19;
+/// 代币余额不够
+pub const AW_ERR_EVM_TOKEN_SHORT: i32 = AW_ERR_TX_REJECT_BASE - 21;
+
+fn tier_json(t: &Tier, gas_limit: u64) -> Result<Json, i32> {
+    let wei = |v: U256| v.to_u64().ok_or(evm_code(EvmError::Overflow));
+    let cost = t
+        .max_fee
+        .checked_mul(U256::from_u64(gas_limit))
+        .ok_or(evm_code(EvmError::Overflow))?;
+    Ok(Json::obj(vec![
+        ("speed", Json::str(t.speed.key())),
+        ("label", Json::str(t.speed.label())),
+        ("max_priority_fee", Json::UInt(wei(t.max_priority_fee)?)),
+        ("max_fee", Json::UInt(wei(t.max_fee)?)),
+        (
+            "max_priority_gwei",
+            Json::str(t.max_priority_fee.format_units(9)),
+        ),
+        ("max_fee_gwei", Json::str(t.max_fee.format_units(9))),
+        ("max_cost", Json::str(cost.format_units(18))),
+    ]))
+}
+
+/// 手续费三档（决策 D35）。EIP-1559 链：`has_base_fee = 1`，`base_fee` 为下一区块基础费
+/// （eth_feeHistory 的 baseFeePerGas 最后一项），`rewards` 为 eth_feeHistory 的 reward 展平
+/// （每个区块 3 个：10/50/90 百分位，`rewards_len` 为个数，3 的倍数），`node_price` 为 eth_maxPriorityFeePerGas；
+/// 旧式链：`has_base_fee = 0`，`node_price` 为 eth_gasPrice，`rewards_len` 为 0。
+/// 输出 JSON 数组（慢、标准、快）：speed、label、max_priority_fee / max_fee（wei 整数，可直接用于构造）、
+/// max_priority_gwei / max_fee_gwei（文本）、max_cost（gas_limit × max_fee，原生币单位文本）。
+///
+/// # Safety
+/// `rewards` 指向 `rewards_len` 个 u64（长度为 0 时可为空）；输出指针有效。
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn aw_evm_fee_tiers(
+    has_base_fee: u8,
+    base_fee: u64,
+    rewards: *const u64,
+    rewards_len: usize,
+    node_price: u64,
+    gas_limit: u64,
+    out_json: *mut *mut u8,
+    out_len: *mut usize,
+) -> i32 {
+    // SAFETY: 调用方保证。
+    if let Err(e) = unsafe { clear_out(out_json, out_len) } {
+        return e;
+    }
+    let r = (|| -> Result<Vec<u8>, i32> {
+        if !rewards_len.is_multiple_of(3) || rewards_len > 3 * MAX_HISTORY_BLOCKS {
+            return Err(AW_ERR_BAD_ARGUMENT);
+        }
+        let flat: &[u64] = if rewards_len == 0 {
+            &[]
+        } else if rewards.is_null() {
+            return Err(AW_ERR_NULL_POINTER);
+        } else {
+            // SAFETY: 调用方保证 rewards 指向 rewards_len 个 u64。
+            unsafe { core::slice::from_raw_parts(rewards, rewards_len) }
+        };
+        let rows: Vec<[U256; 3]> = flat
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(|c| c.map(U256::from_u64))
+            .collect();
+        let tiers = match has_base_fee {
+            1 => eip1559_tiers(U256::from_u64(base_fee), &rows, U256::from_u64(node_price)),
+            0 if rows.is_empty() => legacy_tiers(U256::from_u64(node_price)),
+            _ => return Err(AW_ERR_BAD_ARGUMENT),
+        }
+        .map_err(evm_code)?;
+        let list = tiers
+            .iter()
+            .map(|t| tier_json(t, gas_limit))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Json::Array(list).to_string_compact().into_bytes())
+    })();
+    match r {
+        // SAFETY: 输出指针已检查。
+        Ok(v) => unsafe { hand_out(v, out_json, out_len) },
+        Err(e) => e,
+    }
+}
+
+/// 构造前核对余额（决策 D35、审计 P1-11）。`native_hex`：原生币余额（JSON-RPC 十六进制数量）；
+/// `token_hex`：代币余额（代币转账时；原生币转账传长度 0）；`value32`：转出数量（最小单位，32 字节大端）；
+/// 最高手续费 = `gas_limit` × `max_fee32`。原生币不够付"金额 + 最高手续费"（代币转账只算手续费）返回
+/// `AW_ERR_EVM_NATIVE_SHORT`；代币不够返回 `AW_ERR_EVM_TOKEN_SHORT`。
+///
+/// # Safety
+/// 指针按长度有效；`value32`、`max_fee32` 各指向 32 字节。
+#[no_mangle]
+pub unsafe extern "C" fn aw_evm_check_funds(
+    native_hex: *const u8,
+    native_len: usize,
+    token_hex: *const u8,
+    token_len: usize,
+    value32: *const u8,
+    gas_limit: u64,
+    max_fee32: *const u8,
+) -> i32 {
+    let quantity = |p: *const u8, n: usize| -> Result<U256, i32> {
+        // SAFETY: 调用方保证。
+        let b = unsafe { input(p, n, 80) }?;
+        let t = core::str::from_utf8(b).map_err(|_| AW_ERR_BAD_ARGUMENT)?;
+        U256::from_hex_quantity(t).ok_or(AW_ERR_BAD_ARGUMENT)
+    };
+    let r = (|| -> Result<i32, i32> {
+        let native = quantity(native_hex, native_len)?;
+        let token = if token_len == 0 {
+            None
+        } else {
+            Some(quantity(token_hex, token_len)?)
+        };
+        // SAFETY: 调用方保证。
+        let value = unsafe { u256_at(value32) }?;
+        // SAFETY: 调用方保证。
+        let max_fee = unsafe { u256_at(max_fee32) }?;
+        Ok(
+            match check_funds(native, token, value, gas_limit, max_fee) {
+                Funds::Enough => AW_OK,
+                Funds::NativeShort => AW_ERR_EVM_NATIVE_SHORT,
+                Funds::TokenShort => AW_ERR_EVM_TOKEN_SHORT,
+            },
+        )
+    })();
+    r.unwrap_or_else(|e| e)
 }
 
 /// 读取 32 字节大端整数

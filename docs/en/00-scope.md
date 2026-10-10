@@ -35,7 +35,7 @@ v2 candidates (not in v1 scope): LTC, BCH (reuse the UTXO module, low cost); TON
 - Public key export: per-chain xpub / public key / address, passed to the Watcher via QR code
 - Signing: transfers and common contract interactions on the 6 chain categories above; by default, refuse to sign each chain's "dangerous operations" (see the threat model)
 - Addresses: full grouped display, allowlist, look-alike address warning
-- Watcher: balances, history, transaction building, broadcasting; a self-hosted node is preferred, otherwise multiple RPCs are cross-checked
+- Watcher: balances, history, transaction building, broadcasting; a node registry (several built-in public nodes per network plus your own nodes, with health checks and switching; broadcasting can use a different node); fee tiers (EVM slow / standard / fast / custom plus gas limit, BTC fast / standard / slow / economy / custom); a balance check before building (D35)
 
 ## Explicitly out of scope (Non-goals)
 

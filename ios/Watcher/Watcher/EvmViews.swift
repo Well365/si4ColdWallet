@@ -1,3 +1,4 @@
+import AWWatchC
 import SwiftUI
 import UIKit
 
@@ -67,7 +68,7 @@ struct EvmAccountView: View {
     let account: EvmAccount
     let onForget: () -> Void
     @AppStorage("evm-network") private var chainId: Int = 11_155_111
-    @AppStorage("evm-rpc-overrides") private var rpcOverrides = ""
+    @ObservedObject private var book = NodeBook.shared
     @State private var balances: [String: String] = [:]
     @State private var error: String?
 
@@ -75,15 +76,11 @@ struct EvmAccountView: View {
         EvmNetwork.all.first { $0.chainId == UInt64(chainId) } ?? EvmNetwork.all[0]
     }
 
-    /// 每条链可以改用自己的节点（"链ID=URL" 每行一条）
-    private var rpcURL: URL? {
-        let custom = rpcOverrides.split(separator: "\n").compactMap { line -> (UInt64, String)? in
-            let parts = line.split(separator: "=", maxSplits: 1)
-            guard parts.count == 2, let id = UInt64(parts[0]) else { return nil }
-            return (id, String(parts[1]).trimmingCharacters(in: .whitespaces))
-        }.first { $0.0 == network.chainId }?.1
-        guard let u = URL(string: custom ?? network.defaultRPC), u.scheme == "https" else { return nil }
-        return u
+    private var nodeNet: NodeNetwork { .evm(network) }
+
+    /// 当前节点（查询余额、获取手续费、构造；广播时可以另选）
+    private var rpc: EvmRPC? {
+        NodeBook.validURL(book.current(nodeNet).url).map { EvmRPC(url: $0) }
     }
 
     var body: some View {
@@ -110,28 +107,25 @@ struct EvmAccountView: View {
                 Button("刷新") { Task { await refresh() } }
             }
             Section {
-                if let rpcURL {
-                    NavigationLink("发送") { EvmPayView(account: account, network: network, rpc: EvmRPC(url: rpcURL)) }
+                NodeSummaryRow(net: nodeNet)
+                if let rpc {
+                    NavigationLink("发送") { EvmPayView(account: account, network: network, rpc: rpc) }
                 } else {
                     Text("节点地址无效（必须是 https）").foregroundStyle(.red)
                 }
                 NavigationLink("签名消息（personal_sign / EIP-712）") { EvmMessageView(account: account, network: network) }
-            }
-            Section("自定义节点（可选）") {
-                TextField("链ID=https://…（每行一条）", text: $rpcOverrides, axis: .vertical)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
-                    .font(.system(.caption, design: .monospaced))
+            } footer: {
+                Text("节点可在“节点”页选择、测试或添加自己的；发送页可以选手续费档位，广播时可以换节点。")
             }
             if let error { Section { Text(error).foregroundStyle(.red) } }
             Section { Button("移除此账户", role: .destructive) { onForget() } }
         }
         .navigationTitle("EVM 账户")
-        .task(id: chainId) { await refresh() }
+        .task(id: "\(chainId)-\(book.current(nodeNet).url)") { await refresh() }
     }
 
     private func refresh() async {
-        guard let rpcURL else { return }
-        let rpc = EvmRPC(url: rpcURL)
+        guard let rpc else { return }
         let addr = account.address(index: 0)
         do {
             // 节点必须真的是所选网络，防止配错节点导致在错误的链上构造交易
@@ -154,17 +148,39 @@ struct EvmAccountView: View {
     }
 }
 
+/// 发送（决策 D35）：收款人与金额 → 手续费档位（慢 / 标准 / 快 / 自定义）与 gas 上限 → 核对余额 → 构造 → 签名机扫码
 struct EvmPayView: View {
     let account: EvmAccount
     let network: EvmNetwork
     let rpc: EvmRPC
+
+    private struct InputError: Error { let message: String }
+
     @State private var to = ""
     @State private var amount = ""
     @State private var token: EvmToken?
+    @State private var tiers: [EvmFeeTier] = []
+    @State private var speed = "standard"
+    @State private var customMaxFee = ""
+    @State private var customPriority = ""
+    @State private var gasLimitText = ""
+    @State private var estimatedGas: UInt64?
+    @State private var gasNote: String?
+    @State private var feeError: String?
+    @State private var loadingFees = false
+    @State private var manualNonce = false
+    @State private var nonceText = ""
     @State private var pending: EvmPending?
     @State private var frames: URFrames?
     @State private var busy = false
     @State private var error: String?
+
+    private var defaultGas: UInt64 { token == nil ? 21_000 : 100_000 }
+
+    /// 实际使用的 gas 上限：手填优先；否则用估算值；估算失败用默认值
+    private var gasLimit: UInt64? {
+        gasLimitText.isEmpty ? (estimatedGas ?? defaultGas) : UInt64(gasLimitText)
+    }
 
     var body: some View {
         Form {
@@ -179,7 +195,35 @@ struct EvmPayView: View {
                 TextField("金额（如 0.01）", text: $amount).keyboardType(.decimalPad)
             }
             Section {
-                Button(busy ? "正在向节点查询 nonce 与手续费…" : "构造交易") { Task { await build() } }
+                Picker("档位", selection: $speed) {
+                    ForEach(tiers) { Text($0.label).tag($0.speed) }
+                    Text("自定义").tag("custom")
+                }
+                .pickerStyle(.segmented)
+                if speed == "custom" {
+                    TextField("最高单价（gwei，如 30）", text: $customMaxFee).keyboardType(.decimalPad)
+                    TextField("优先费（gwei，如 1.5）", text: $customPriority).keyboardType(.decimalPad)
+                } else if let t = tiers.first(where: { $0.speed == speed }) {
+                    LabeledContent("优先费", value: "\(t.maxPriorityGwei) gwei")
+                    LabeledContent("最高单价", value: "\(t.maxFeeGwei) gwei")
+                }
+                LabeledContent("Gas 上限", value: gasLimit.map { String($0) } ?? "无效")
+                TextField("手动 Gas 上限（留空 = 自动估算）", text: $gasLimitText).keyboardType(.numberPad)
+                if let cost = maxCostText { LabeledContent("最多手续费", value: cost) }
+                if let gasNote { Text(gasNote).font(.footnote).foregroundStyle(.secondary) }
+                if let feeError { Text(feeError).font(.footnote).foregroundStyle(.red) }
+                Button(loadingFees ? "正在获取…" : "重新获取手续费") { Task { await loadFees() } }.disabled(loadingFees)
+            } header: {
+                Text("手续费（gas）")
+            } footer: {
+                Text("最多手续费 = Gas 上限 × 最高单价；实际按用量与当时的基础费收取，多余的不扣。签名机会再显示一遍“总计最多扣除”，请两边对照。")
+            }
+            Section("高级") {
+                Toggle("手动指定 nonce（替换或加速卡住的交易）", isOn: $manualNonce)
+                if manualNonce { TextField("nonce", text: $nonceText).keyboardType(.numberPad) }
+            }
+            Section {
+                Button(busy ? "正在向节点查询余额与 nonce…" : "核对余额并构造交易") { Task { await build() } }
                     .bold().disabled(busy)
             }
             if let pending, let frames {
@@ -189,30 +233,135 @@ struct EvmPayView: View {
                 }
                 Section("待签请求：请用签名机扫描") {
                     AnimatedQRView(source: frames)
-                    NavigationLink("扫描签名机返回的签名") { EvmSignedView(pending: pending, network: network, rpc: rpc) }
+                    NavigationLink("扫描签名机返回的签名") { EvmSignedView(pending: pending, network: network) }
                 }
             }
             if let error { Section { Text(error).foregroundStyle(.red) } }
         }
         .navigationTitle("发送（\(network.name)）")
+        .task { await loadFees() }
+        .onChange(of: token) { _, _ in
+            estimatedGas = nil
+            gasNote = nil
+        }
+    }
+
+    /// 32 字节大端 → u64（高 24 字节必须为 0）
+    private func u64(_ b: [UInt8]) -> UInt64? {
+        guard b.count == 32, b.prefix(24).allSatisfy({ $0 == 0 }) else { return nil }
+        return b.suffix(8).reduce(0) { $0 << 8 | UInt64($1) }
+    }
+
+    /// 选中档位的手续费；自定义时解析 gwei 文本（由 Rust 解析，不用浮点）
+    private func selectedFees() throws -> EvmFees {
+        if speed == "custom" {
+            let maxFee = try EvmAmount.parse(customMaxFee, decimals: 9)
+            let prio = try EvmAmount.parse(customPriority.isEmpty ? "0" : customPriority, decimals: 9)
+            guard maxFee.contains(where: { $0 != 0 }) else { throw InputError(message: "最高单价不能为 0") }
+            // 等长大端数组按字典序比较就是按数值比较
+            guard !maxFee.lexicographicallyPrecedes(prio) else { throw InputError(message: "优先费不能高于最高单价") }
+            return EvmFees(maxPriorityFee: prio, maxFee: maxFee)
+        }
+        guard let t = tiers.first(where: { $0.speed == speed }) else {
+            throw InputError(message: "还没有获取到手续费：请点“重新获取手续费”，或选“自定义”")
+        }
+        return EvmFees(maxPriorityFee: t.maxPriorityFee, maxFee: t.maxFee)
+    }
+
+    private var maxCostText: String? {
+        guard let gas = gasLimit, let fees = try? selectedFees(), let maxFee = u64(fees.maxFee) else { return nil }
+        let (v, overflow) = maxFee.multipliedReportingOverflow(by: gas)
+        return overflow ? "过大" : "\(EvmAmount.format(v, decimals: 18)) \(network.symbol)"
+    }
+
+    private func loadFees() async {
+        loadingFees = true
+        defer { loadingFees = false }
+        do {
+            await estimate(from: account.address(index: 0))
+            let history = try await rpc.feeHistory()
+            let suggested = await rpc.maxPriorityFee()
+            let price = history.nextBaseFee == nil ? try await rpc.gasPrice() : 0
+            tiers = try EvmAmount.feeTiers(history: history, suggested: suggested, gasPrice: price, gasLimit: gasLimit ?? defaultGas)
+            feeError = nil
+        } catch let f as WatchCore.Failure {
+            feeError = "手续费计算失败：\(f.message)；可以换节点或选“自定义”"
+        } catch let e as EvmRPC.RPCError {
+            feeError = "节点：\(e.message)；可以换节点或选“自定义”"
+        } catch {
+            feeError = "\(error.localizedDescription)；可以换节点或选“自定义”"
+        }
+    }
+
+    /// 估算 gas：转给普通地址的原生币转账正好 21000；代币或合约按估算 × 1.2；估算失败用默认值
+    private func estimate(from: String) async {
+        let rcpt = to.trimmingCharacters(in: .whitespaces)
+        let target = token?.contract ?? rcpt
+        guard target.count == 42, target.hasPrefix("0x") else {
+            estimatedGas = nil
+            gasNote = nil
+            return
+        }
+        do {
+            let value = try EvmAmount.parse(amount.isEmpty ? "0" : amount, decimals: token?.decimals ?? 18)
+            var data = "0x"
+            if token != nil {
+                guard rcpt.count == 42, rcpt.hasPrefix("0x") else {
+                    estimatedGas = nil
+                    return
+                }
+                data = "0xa9059cbb" + String(repeating: "0", count: 24) + rcpt.dropFirst(2).lowercased()
+                    + value.map { String(format: "%02x", $0) }.joined()
+            }
+            let g = try await rpc.estimateGas(from: from, to: target,
+                                              value: token == nil ? EvmAmount.quantity(value) : "0x0", data: data)
+            estimatedGas = g == 21_000 ? g : g + g / 5
+            gasNote = g == 21_000 ? nil : "节点估算用量 \(g)，上限多留 20%"
+        } catch {
+            estimatedGas = nil
+            gasNote = "节点无法估算 gas，使用\(token == nil ? "普通转账" : "代币转账")的默认上限 \(defaultGas)"
+        }
     }
 
     private func build() async {
         busy = true
         defer { busy = false }
+        pending = nil
+        frames = nil
         do {
             let addr = account.address(index: 0)
-            let nonce = try await rpc.nonce(addr)
-            let fees = try await rpc.fees()
-            // 代币转账 gas 上限取保守值；只按实际消耗收费
-            let gas: UInt64 = token == nil ? 21_000 : 100_000
+            if gasLimitText.isEmpty { await estimate(from: addr) }
+            guard let gas = gasLimit, gas >= 21_000 else { throw InputError(message: "Gas 上限无效（至少 21000）") }
+            let fees = try selectedFees()
+            let value = try EvmAmount.parse(amount, decimals: token?.decimals ?? 18)
+            guard try await rpc.chainId() == network.chainId else { throw InputError(message: "节点的链 ID 与所选网络不一致") }
+            let native = try await rpc.balance(addr)
+            var tokenBalance: String?
+            if let t = token { tokenBalance = try await rpc.tokenBalance(t.contract, owner: addr) }
+            try EvmAmount.checkFunds(native: native, token: tokenBalance, value: value, gasLimit: gas, maxFee: fees.maxFee)
+            let nonce: UInt64
+            if manualNonce {
+                guard let n = UInt64(nonceText) else { throw InputError(message: "nonce 必须是整数") }
+                nonce = n
+            } else {
+                nonce = try await rpc.nonce(addr)
+            }
             let p = try account.buildTransfer(network: network, nonce: nonce, fees: fees, gasLimit: gas,
                                               to: to.trimmingCharacters(in: .whitespaces), amount: amount, token: token)
             frames = try p.frames()
             pending = p
             error = nil
         } catch let f as WatchCore.Failure {
-            error = f.message
+            switch f.code {
+            case AW_ERR_TX_REJECT_BASE - 19:
+                error = "\(network.symbol) 余额不够支付\(token == nil ? "金额 + 最高手续费" : "最高手续费")"
+            case AW_ERR_TX_REJECT_BASE - 21:
+                error = "\(token?.symbol ?? "代币") 余额不足"
+            default:
+                error = f.message
+            }
+        } catch let e as InputError {
+            error = e.message
         } catch let e as EvmRPC.RPCError {
             error = "节点：\(e.message)"
         } catch {
@@ -224,11 +373,12 @@ struct EvmPayView: View {
 struct EvmSignedView: View {
     let pending: EvmPending
     let network: EvmNetwork
-    let rpc: EvmRPC
     @State private var scan = URScan()
     @State private var progress = (got: 0, total: 0)
     @State private var raw: String?
     @State private var txHash: String?
+    @State private var broadcastURL = ""
+    @State private var broadcasting = false
     @State private var error: String?
 
     var body: some View {
@@ -240,7 +390,9 @@ struct EvmSignedView: View {
                     Text("已广播：\(txHash)").font(.system(.footnote, design: .monospaced)).textSelection(.enabled)
                     if let u = network.txURL(txHash) { Link("在区块浏览器查看", destination: u) }
                 } else {
-                    Button("广播") { Task { await broadcast(raw) } }.buttonStyle(.borderedProminent)
+                    BroadcastNodePicker(net: .evm(network), selection: $broadcastURL)
+                    Button(broadcasting ? "正在广播…" : "广播") { Task { await broadcast(raw) } }
+                        .buttonStyle(.borderedProminent).disabled(broadcasting)
                 }
             } else {
                 QRScannerView { text in receive(text) }
@@ -268,7 +420,19 @@ struct EvmSignedView: View {
     }
 
     private func broadcast(_ hex: String) async {
+        let chosen = broadcastURL.isEmpty ? NodeBook.shared.current(.evm(network)).url : broadcastURL
+        guard let url = NodeBook.validURL(chosen) else {
+            error = "广播节点地址无效"
+            return
+        }
+        let rpc = EvmRPC(url: url, timeout: 30)
+        broadcasting = true
+        defer { broadcasting = false }
         do {
+            guard try await rpc.chainId() == network.chainId else {
+                error = "广播节点的链 ID 与所选网络不一致"
+                return
+            }
             let returned = try await rpc.sendRaw(hex)
             // 节点返回的哈希必须就是这笔交易的哈希，否则"已广播"可能是假的
             guard let expected = EvmAmount.txHash(rawHex: hex), returned.lowercased() == expected.lowercased() else {
@@ -276,10 +440,11 @@ struct EvmSignedView: View {
                 return
             }
             txHash = expected
+            error = nil
         } catch let e as EvmRPC.RPCError {
-            error = "广播失败：\(e.message)"
+            error = "广播失败：\(e.message)（可以换一个节点再试）"
         } catch {
-            self.error = "广播失败：\(error.localizedDescription)"
+            self.error = "广播失败：\(error.localizedDescription)（可以换一个节点再试）"
         }
     }
 }

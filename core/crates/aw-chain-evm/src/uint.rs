@@ -100,7 +100,12 @@ impl U256 {
         Some(U256(limbs))
     }
 
-    /// 除以小整数，返回（商，余数）
+    /// 除以小整数（向下取整）；除数为 0 返回 None
+    pub fn checked_div_u64(self, d: u64) -> Option<U256> {
+        (d != 0).then(|| self.div_rem_u64(d).0)
+    }
+
+    /// 除以小整数，返回（商，余数）。调用方保证 d ≠ 0
     fn div_rem_u64(self, d: u64) -> (U256, u64) {
         let mut q = [0u64; 4];
         let mut rem = 0u128;
@@ -292,6 +297,16 @@ mod tests {
         assert_eq!(U256::from_hex_lenient("0xFF"), Some(U256::from_u64(255)));
         assert_eq!(U256::from_hex_lenient("0x"), None);
         assert_eq!(U256::from_hex_lenient("12"), None);
+    }
+
+    #[test]
+    fn division_by_small_integers() {
+        assert_eq!(
+            U256::from_u64(10).checked_div_u64(3),
+            Some(U256::from_u64(3))
+        );
+        assert_eq!(U256::from_u64(10).checked_div_u64(0), None);
+        assert_eq!(U256::MAX.checked_div_u64(1), Some(U256::MAX));
     }
 
     #[test]

@@ -1,0 +1,24 @@
+@startgantt w1-progress
+' W1 观察机发送体系的任务进度（2026-10-11）
+title W1 观察机发送体系：节点登记簿 + 手续费档位（2026-10-11）
+skinparam defaultFontName "PingFang SC"
+project starts 2026-10-11
+[T1 Rust：手续费三档、余额核对、总计最多扣除] starts 2026-10-11 and lasts 1 day
+[T1 Rust：手续费三档、余额核对、总计最多扣除] is 100% completed
+[T1 Rust：手续费三档、余额核对、总计最多扣除] is colored in LightGreen
+[T2 节点登记簿与体检] starts 2026-10-11 and lasts 1 day
+[T2 节点登记簿与体检] is 100% completed
+[T2 节点登记簿与体检] is colored in LightGreen
+[T3 EVM 发送页（档位 / 自定义 / gas 上限 / nonce）] starts 2026-10-11 and lasts 1 day
+[T3 EVM 发送页（档位 / 自定义 / gas 上限 / nonce）] is 100% completed
+[T3 EVM 发送页（档位 / 自定义 / gas 上限 / nonce）] is colored in LightGreen
+[T4 BTC 付款页（费率档位 / 广播节点）] starts 2026-10-11 and lasts 1 day
+[T4 BTC 付款页（费率档位 / 广播节点）] is 100% completed
+[T4 BTC 付款页（费率档位 / 广播节点）] is colored in LightGreen
+[T5 文档（D35、费曼汇报、进度图）] starts 2026-10-11 and lasts 1 day
+[T5 文档（D35、费曼汇报、进度图）] is 100% completed
+[T5 文档（D35、费曼汇报、进度图）] is colored in LightGreen
+[真机测试网实发（需要你的测试币）] starts 2026-10-12 and lasts 1 day
+[真机测试网实发（需要你的测试币）] is 0% completed
+[真机测试网实发（需要你的测试币）] is colored in Gold
+@endgantt

@@ -452,3 +452,97 @@ fn evm_error_codes_match_signer_table() {
         );
     }
 }
+
+/// D35：手续费三档与余额核对经 C 接口往返
+#[test]
+fn evm_fee_tiers_and_funds() {
+    use evm::*;
+    const GWEI: u64 = 1_000_000_000;
+    let rewards = [
+        GWEI,
+        2 * GWEI,
+        3 * GWEI,
+        GWEI,
+        2 * GWEI,
+        5 * GWEI,
+        2 * GWEI,
+        3 * GWEI,
+        4 * GWEI,
+    ];
+    let (mut p, mut l) = (core::ptr::null_mut(), 0usize);
+    let rc = unsafe {
+        aw_evm_fee_tiers(
+            1,
+            10 * GWEI,
+            rewards.as_ptr(),
+            rewards.len(),
+            2 * GWEI,
+            21_000,
+            &mut p,
+            &mut l,
+        )
+    };
+    assert_eq!(rc, AW_OK);
+    let json = String::from_utf8(take(p, l)).unwrap();
+    assert!(
+        json.starts_with(
+            r#"[{"speed":"slow","label":"慢","max_priority_fee":1000000000,"max_fee":13500000000,"#
+        ),
+        "{json}"
+    );
+    assert!(
+        json.contains(r#""max_fee":17000000000"#) && json.contains(r#""max_fee":24000000000"#),
+        "{json}"
+    );
+    // 标准档最多手续费 = 21000 × 17 gwei = 0.000357
+    assert!(json.contains(r#""max_cost":"0.000357""#), "{json}");
+    // 旧式链
+    let (mut p, mut l) = (core::ptr::null_mut(), 0usize);
+    assert_eq!(
+        unsafe { aw_evm_fee_tiers(0, 0, core::ptr::null(), 0, 4 * GWEI, 21_000, &mut p, &mut l) },
+        AW_OK
+    );
+    let json = String::from_utf8(take(p, l)).unwrap();
+    assert!(json.contains(r#""max_fee":5000000000"#), "{json}");
+    // 参数错误：个数不是 3 的倍数、旧式链带历史、空指针
+    let (mut p, mut l) = (core::ptr::null_mut(), 0usize);
+    assert_eq!(
+        unsafe { aw_evm_fee_tiers(1, GWEI, rewards.as_ptr(), 4, GWEI, 21_000, &mut p, &mut l) },
+        AW_ERR_BAD_ARGUMENT
+    );
+    assert_eq!(
+        unsafe { aw_evm_fee_tiers(0, 0, rewards.as_ptr(), 3, GWEI, 21_000, &mut p, &mut l) },
+        AW_ERR_BAD_ARGUMENT
+    );
+    assert_eq!(
+        unsafe { aw_evm_fee_tiers(1, GWEI, core::ptr::null(), 3, GWEI, 21_000, &mut p, &mut l) },
+        AW_ERR_NULL_POINTER
+    );
+    assert!(p.is_null() && l == 0);
+
+    // 余额核对：0.01 ETH + 21000 × 30 gwei = 0.01063 ETH
+    let mut value = [0u8; 32];
+    value[24..].copy_from_slice(&10_000_000_000_000_000u64.to_be_bytes());
+    let mut max_fee = [0u8; 32];
+    max_fee[24..].copy_from_slice(&(30 * GWEI).to_be_bytes());
+    let check = |native: &str, token: &str| unsafe {
+        aw_evm_check_funds(
+            native.as_ptr(),
+            native.len(),
+            token.as_ptr(),
+            token.len(),
+            value.as_ptr(),
+            21_000,
+            max_fee.as_ptr(),
+        )
+    };
+    assert_eq!(check("0x25c3edbdf66000", ""), AW_OK); // 恰好 0.01063 ETH
+    assert_eq!(check("0x25c3edbdf65fff", ""), AW_ERR_EVM_NATIVE_SHORT);
+    // 代币转账：原生币只需 0.00063，代币要 ≥ 数量
+    assert_eq!(check("0x2386f26fc10000", "0x2386f26fc10000"), AW_OK);
+    assert_eq!(
+        check("0x2386f26fc10000", "0x2386f26fc0ffff"),
+        AW_ERR_EVM_TOKEN_SHORT
+    );
+    assert_eq!(check("1234", ""), AW_ERR_BAD_ARGUMENT);
+}

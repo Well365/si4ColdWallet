@@ -47,6 +47,39 @@ pub fn build_eip1559(t: &Eip1559) -> Result<Vec<u8>, EvmError> {
     Ok(out)
 }
 
+/// 构造前的余额核对结果（决策 D35）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Funds {
+    Enough,
+    /// 原生币不够付"金额 + 最高手续费"（代币转账时只算手续费）
+    NativeShort,
+    /// 代币余额不够
+    TokenShort,
+}
+
+/// 原生币余额 ≥ 转出金额（原生币转账时）+ gas 上限 × 最高单价；代币转账还要代币余额 ≥ 数量。
+/// 节点给的余额不可信：这里只用来提前提示，签名机仍会独立显示"总计最多扣除"。
+pub fn check_funds(
+    native: U256,
+    token: Option<U256>,
+    value: U256,
+    gas_limit: u64,
+    max_fee: U256,
+) -> Funds {
+    let fee = max_fee.checked_mul(U256::from_u64(gas_limit));
+    let need = match token {
+        Some(_) => fee,
+        None => fee.and_then(|f| f.checked_add(value)),
+    };
+    if !need.is_some_and(|n| n <= native) {
+        return Funds::NativeShort;
+    }
+    match token {
+        Some(t) if t < value => Funds::TokenShort,
+        _ => Funds::Enough,
+    }
+}
+
 /// ERC-20 `transfer(to, amount)` 调用数据
 pub fn erc20_transfer(to: &[u8; 20], amount: U256) -> Vec<u8> {
     let mut d = vec![0xa9, 0x05, 0x9c, 0xbb];
@@ -170,4 +203,55 @@ fn check_assembled(sign_data: &[u8], raw: &[u8], typed: bool) -> Result<(), EvmE
 /// 交易哈希（用于核对节点返回的哈希是否就是这笔交易）
 pub fn tx_hash(raw: &[u8]) -> [u8; 32] {
     keccak256(raw)
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    #[test]
+    fn funds_are_checked_including_the_maximum_fee() {
+        let fee = U256::from_u64(21_000 * 2);
+        let v = U256::from_u64(100);
+        let exact = v.checked_add(fee).unwrap();
+        assert_eq!(
+            check_funds(exact, None, v, 21_000, U256::from_u64(2)),
+            Funds::Enough
+        );
+        assert_eq!(
+            check_funds(
+                U256::from_u64(21_000 * 2 + 99),
+                None,
+                v,
+                21_000,
+                U256::from_u64(2)
+            ),
+            Funds::NativeShort
+        );
+        // 代币转账：原生币只需付手续费；代币不够另行报告
+        assert_eq!(
+            check_funds(fee, Some(v), v, 21_000, U256::from_u64(2)),
+            Funds::Enough
+        );
+        assert_eq!(
+            check_funds(fee, Some(U256::from_u64(99)), v, 21_000, U256::from_u64(2)),
+            Funds::TokenShort
+        );
+        assert_eq!(
+            check_funds(
+                U256::from_u64(21_000 * 2 - 1),
+                Some(v),
+                v,
+                21_000,
+                U256::from_u64(2)
+            ),
+            Funds::NativeShort
+        );
+        // 溢出按不够处理
+        assert_eq!(
+            check_funds(U256::MAX, None, U256::MAX, 21_000, U256::from_u64(1)),
+            Funds::NativeShort
+        );
+    }
 }
