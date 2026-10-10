@@ -40,6 +40,8 @@ extern "C" {
 #define AW_ERR_TX_REJECT_BASE -100
 /* EVM 请求拒绝：AW_ERR_EVM_REJECT_BASE - n */
 #define AW_ERR_EVM_REJECT_BASE -300
+/* Solana 请求拒绝：AW_ERR_SOL_REJECT_BASE - n（P2c） */
+#define AW_ERR_SOL_REJECT_BASE -400
 
 typedef struct AwSession AwSession;
 typedef struct AwUrEncoder AwUrEncoder;

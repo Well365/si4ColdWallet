@@ -30,6 +30,8 @@ pub const AW_ERR_TX: i32 = -30;
 pub const AW_ERR_TX_REJECT_BASE: i32 = -100;
 /// EVM 请求拒绝：AW_ERR_EVM_REJECT_BASE - 原因序号
 pub const AW_ERR_EVM_REJECT_BASE: i32 = -300;
+/// Solana 请求拒绝：AW_ERR_SOL_REJECT_BASE - 原因序号（P2c）
+pub const AW_ERR_SOL_REJECT_BASE: i32 = -400;
 /// 解码出的二维码不是签名机能处理的请求类型
 pub const AW_ERR_UNSUPPORTED_REQUEST: i32 = -23;
 /// 请求含高风险警告，调用方没有传入"用户已确认"

@@ -82,6 +82,18 @@ enum AWCore {
             16: "请求里有超长的字段或消息，签名机无法完整显示，拒绝签名（避免盲签）",
             17: "Safe 多签对自身的所有者、阈值、模块、守卫或回退处理器变更会移交多签控制权，拒绝签名",
         ]
+        let solReasons: [Int32: String] = [
+            1: "Solana 交易数据无法严格解析，拒绝签名",
+            2: "交易使用了地址查找表：被引用的地址签名机离线无法核实，拒绝签名",
+            3: "这笔交易不需要本账户签名（账户类型或序号可能选错了）",
+            4: "交易会改变账户归属的程序（System Assign），等于把账户交给别人处置，拒绝签名",
+            5: "交易会交出代币账户或代币的控制权（SetAuthority），拒绝签名",
+            6: "数值溢出", 7: "不支持的请求类型（例如链下消息签名）",
+            8: "签名路径不是支持的 Solana 账户类型（Phantom / Ledger Live / Ledger 主账户）",
+            9: "请求里的地址与签名机派生出的不一致：观察机上选的账户类型或序号不对",
+            10: "密钥派生或签名自检失败", 11: "签名无效", 12: "签名与请求不对应",
+        ]
+        if code <= AW_ERR_SOL_REJECT_BASE, let r = solReasons[AW_ERR_SOL_REJECT_BASE - code] { return r }
         if code <= AW_ERR_EVM_REJECT_BASE, let r = evmReasons[AW_ERR_EVM_REJECT_BASE - code] { return r }
         if code <= AW_ERR_TX_REJECT_BASE, let r = reasons[AW_ERR_TX_REJECT_BASE - code] { return r }
         switch code {

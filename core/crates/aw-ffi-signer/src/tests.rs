@@ -676,3 +676,123 @@ fn evm_error_codes_are_pinned() {
         AW_ERR_NEEDS_CONFIRMATION
     );
 }
+
+/// P2c：Solana 请求经 C 接口审查与签名；高风险未确认时拒绝；拒签原因走 Solana 错误码段
+#[test]
+fn sol_review_and_sign_through_c_abi() {
+    use aw_chain_sol::programs::Ix;
+    use aw_chain_sol::request::{decode_signature, encode_request};
+    use aw_chain_sol::watch::{build_request, build_transfer, finalize, Transfer};
+    use aw_chain_sol::Scheme;
+    let s = unlocked();
+    let own = {
+        let (mut p, mut l) = (core::ptr::null_mut(), 0usize);
+        assert_eq!(
+            unsafe { aw_session_address(s, 2, 1, 0, &mut p, &mut l) },
+            AW_OK
+        );
+        let json = String::from_utf8(take(p, l)).unwrap();
+        let addr = json
+            .split("\"address\":\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap()
+            .to_owned();
+        let b: [u8; 32] = base58ck::decode(&addr).unwrap().try_into().unwrap();
+        b
+    };
+    let msg = build_transfer(&Transfer {
+        from: own,
+        to: [0x22; 32],
+        amount: 1_000,
+        token: None,
+        blockhash: [0x33; 32],
+        unit_limit: None,
+        unit_price: None,
+    })
+    .unwrap();
+    let req = build_request(msg, Scheme::LedgerLive, 0, own, None, [5; 16]);
+    let dec = scanned(encode_request(&req).unwrap());
+    let (mut p, mut l) = (core::ptr::null_mut(), 0usize);
+    assert_eq!(
+        unsafe { aw_session_review_ur(s, dec, &mut p, &mut l) },
+        AW_OK
+    );
+    let json = String::from_utf8(take(p, l)).unwrap();
+    assert!(
+        json.contains("发送 SOL") && json.contains("0.000001 SOL"),
+        "{json}"
+    );
+    let mut enc = core::ptr::null_mut();
+    assert_eq!(unsafe { aw_session_sign_ur(s, dec, 0, &mut enc) }, AW_OK);
+    unsafe { aw_ur_decoder_free(dec) };
+    let back = pump(enc);
+    let sig = decode_signature(unsafe { aw_ffi_common::decoded_ur(back) }.unwrap()).unwrap();
+    unsafe { aw_ur_decoder_free(back) };
+    assert!(finalize(&req, &sig).is_ok());
+
+    // 未知程序：高风险，未勾选确认时拒绝
+    let unknown = Ix {
+        program: [0x77; 32],
+        accounts: vec![],
+        data: vec![1],
+    };
+    let msg = aw_chain_sol::programs::compile_legacy(&own, &[unknown], &[0x33; 32]).unwrap();
+    let req = build_request(msg, Scheme::LedgerLive, 0, own, None, [6; 16]);
+    let dec = scanned(encode_request(&req).unwrap());
+    let mut enc = core::ptr::null_mut();
+    assert_eq!(
+        unsafe { aw_session_sign_ur(s, dec, 0, &mut enc) },
+        AW_ERR_NEEDS_CONFIRMATION
+    );
+    assert!(enc.is_null());
+    assert_eq!(unsafe { aw_session_sign_ur(s, dec, 1, &mut enc) }, AW_OK);
+    unsafe { aw_ur_encoder_free(enc) };
+    unsafe { aw_ur_decoder_free(dec) };
+
+    // 地址与路径不符（选错账户类型）：拒签，错误码在 Solana 段
+    let req = build_request(
+        aw_chain_sol::programs::compile_legacy(&own, &[], &[0x33; 32]).unwrap(),
+        Scheme::Phantom,
+        0,
+        own,
+        None,
+        [7; 16],
+    );
+    let dec = scanned(encode_request(&req).unwrap());
+    let mut enc = core::ptr::null_mut();
+    assert_eq!(
+        unsafe { aw_session_sign_ur(s, dec, 1, &mut enc) },
+        aw_ffi_common::AW_ERR_SOL_REJECT_BASE - 9
+    );
+    unsafe { aw_ur_decoder_free(dec) };
+    unsafe { aw_session_free(s) };
+}
+
+/// Solana 拒签原因的错误码序号固定（Swift 文案表按同一序号解释）
+#[test]
+fn sol_error_codes_are_pinned() {
+    use aw_chain_sol::SolError as E;
+    for (e, n) in [
+        (E::Parse, 1),
+        (E::LookupTable, 2),
+        (E::NotSigner, 3),
+        (E::OwnerChange, 4),
+        (E::SetAuthority, 5),
+        (E::Overflow, 6),
+        (E::Unsupported, 7),
+        (E::PathMismatch, 8),
+        (E::AddressMismatch, 9),
+        (E::Derivation, 10),
+        (E::BadSignature, 11),
+        (E::RequestMismatch, 12),
+    ] {
+        assert_eq!(
+            sol_error_code(e),
+            aw_ffi_common::AW_ERR_SOL_REJECT_BASE - n,
+            "{e:?}"
+        );
+    }
+}

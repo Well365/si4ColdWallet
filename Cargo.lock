@@ -109,6 +109,7 @@ dependencies = [
  "aw-ffi-common",
  "aw-keys",
  "aw-ur",
+ "base58ck",
  "bitcoin",
 ]
 

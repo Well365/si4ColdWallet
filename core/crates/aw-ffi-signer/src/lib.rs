@@ -16,6 +16,8 @@ use aw_chain_btc::BtcError;
 use aw_chain_evm::request::{decode_request, encode_signature, SIGN_REQUEST};
 use aw_chain_evm::sign::{sign as evm_sign, EvmSigner};
 use aw_chain_evm::EvmError;
+use aw_chain_sol::sign::SolSigner;
+use aw_chain_sol::SolError;
 use aw_common::display::Display;
 use aw_common::secret::{scrub_stack, SecretBytes, SecretVec};
 use aw_ffi_common::{
@@ -81,6 +83,8 @@ pub struct AwSession {
     passphrase: Option<SecretVec>,
     signer: Option<SigningAccount>,
     evm: Option<EvmSigner>,
+    /// Solana：m/44'/501' 节点（D34 三种方案的共同父节点）
+    sol: Option<SolSigner>,
     /// 其他链的地址（只含公开信息）
     addresses: Option<addresses::Addresses>,
     secp: Option<Secp256k1<All>>,
@@ -97,6 +101,7 @@ pub extern "C" fn aw_session_new() -> *mut AwSession {
         passphrase: None,
         signer: None,
         evm: None,
+        sol: None,
         addresses: None,
         secp: None,
         last_system: None,
@@ -152,6 +157,7 @@ fn set_mnemonic(sess: &mut AwSession, ent: &SecretBytes<32>, bytes: usize) -> Re
     sess.mnemonic = Some(m);
     sess.signer = None;
     sess.evm = None;
+    sess.sol = None;
     sess.addresses = None;
     Ok(())
 }
@@ -230,6 +236,7 @@ pub unsafe extern "C" fn aw_session_set_words(s: *mut AwSession, idx: *const u16
         sess.mnemonic = Some(Mnemonic::from_indices(words).map_err(|_| AW_ERR_BAD_MNEMONIC)?);
         sess.signer = None;
         sess.evm = None;
+        sess.sol = None;
         sess.addresses = None;
         Ok(())
     })();
@@ -281,6 +288,7 @@ pub unsafe extern "C" fn aw_session_set_passphrase(
         sess.passphrase = Some(SecretVec::copy_from(bytes));
         sess.signer = None;
         sess.evm = None;
+        sess.sol = None;
         sess.addresses = None;
         Ok(())
     })();
@@ -332,6 +340,7 @@ pub unsafe extern "C" fn aw_session_unlock(
         // 审查 L4：无论成功与否，先丢弃上一次解锁留下的一切，失败时不会残留旧账户
         sess.signer = None;
         sess.evm = None;
+        sess.sol = None;
         sess.addresses = None;
         sess.secp = None;
         let m = sess.mnemonic.as_ref().ok_or(AW_ERR_STATE)?;
@@ -353,12 +362,14 @@ pub unsafe extern "C" fn aw_session_unlock(
         }
         let addrs = addresses::Addresses::derive(&secp, &master, &seed, testnet == 1)
             .ok_or(AW_ERR_DERIVATION)?;
+        let sol = SolSigner::from_seed(&seed).map_err(|_| AW_ERR_DERIVATION)?;
         drop(seed);
         let signer = SigningAccount::from_master(&secp, &master, network, 0)
             .map_err(|_| AW_ERR_DERIVATION)?;
         let evm = EvmSigner::from_master(&secp, &master).map_err(|_| AW_ERR_DERIVATION)?;
         sess.signer = Some(signer);
         sess.evm = Some(evm);
+        sess.sol = Some(sol);
         sess.addresses = Some(addrs);
         // 随机数审查 M2：解锁后不再需要助记词与 passphrase，立即清除（各自的 Drop 负责清零）
         sess.mnemonic = None;
@@ -462,6 +473,25 @@ pub unsafe extern "C" fn aw_session_address(
     }
 }
 
+/// Solana 拒绝原因 → 错误码 AW_ERR_SOL_REJECT_BASE - 序号（Swift 侧有对应的中文说明）
+pub(crate) fn sol_error_code(e: SolError) -> i32 {
+    let n = match e {
+        SolError::Parse => 1,
+        SolError::LookupTable => 2,
+        SolError::NotSigner => 3,
+        SolError::OwnerChange => 4,
+        SolError::SetAuthority => 5,
+        SolError::Overflow => 6,
+        SolError::Unsupported => 7,
+        SolError::PathMismatch => 8,
+        SolError::AddressMismatch => 9,
+        SolError::Derivation => 10,
+        SolError::BadSignature => 11,
+        SolError::RequestMismatch => 12,
+    };
+    aw_ffi_common::AW_ERR_SOL_REJECT_BASE - n
+}
+
 /// 把交易拒绝原因映射为错误码：AW_ERR_TX_REJECT_BASE - 序号（Swift 侧有对应的中文说明）。
 fn btc_error_code(e: BtcError) -> i32 {
     let n = match e {
@@ -517,12 +547,18 @@ fn evm_error_code(e: EvmError) -> i32 {
 enum Request {
     Btc(bitcoin::psbt::Psbt),
     Evm(aw_chain_evm::request::SignRequest),
+    Sol(aw_chain_sol::request::SignRequest),
 }
 
 fn parse_request(ur: &Ur) -> Result<Request, i32> {
     if ur.ur_type == SIGN_REQUEST {
         return decode_request(ur)
             .map(Request::Evm)
+            .map_err(aw_ffi_common::ur_error_code);
+    }
+    if ur.ur_type == aw_chain_sol::request::SIGN_REQUEST {
+        return aw_chain_sol::request::decode_request(ur)
+            .map(Request::Sol)
             .map_err(aw_ffi_common::ur_error_code);
     }
     match decode_psbt(ur) {
@@ -549,6 +585,10 @@ fn review_request(sess: &AwSession, req: &Request) -> Result<Display, i32> {
             aw_chain_evm::review::review(secp, &evm.account, r)
                 .map(|x| x.display)
                 .map_err(evm_error_code)
+        }
+        Request::Sol(r) => {
+            let sol = sess.sol.as_ref().ok_or(AW_ERR_STATE)?;
+            sol.review(r).map(|x| x.display).map_err(sol_error_code)
         }
     }
 }
@@ -623,6 +663,11 @@ pub unsafe extern "C" fn aw_session_sign_ur(
                 let evm = sess.evm.as_ref().ok_or(AW_ERR_STATE)?;
                 let (_, sig) = evm_sign(secp, evm, &req).map_err(evm_error_code)?;
                 encode_signature(&sig)
+            }
+            Request::Sol(req) => {
+                let sol = sess.sol.as_ref().ok_or(AW_ERR_STATE)?;
+                let (_, sig) = sol.sign(&req).map_err(sol_error_code)?;
+                aw_chain_sol::request::encode_signature(&sig)
             }
         }
         .map_err(aw_ffi_common::ur_error_code)?;

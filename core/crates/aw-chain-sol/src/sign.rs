@@ -42,9 +42,8 @@ impl SolSigner {
         })
     }
 
-    /// 审查后签名。路径必须是三种方案之一；请求声明的地址必须就是派生出的地址；
-    /// 消息必须通过审查（拒签项直接返回错误）。是否需要用户确认高风险由调用方根据显示模型决定。
-    pub fn sign(&self, req: &SignRequest) -> Result<(Reviewed, Signature), SolError> {
+    /// 只审查不签名：路径必须是三种方案之一；请求声明的地址必须就是派生出的地址；消息必须通过审查
+    pub fn review(&self, req: &SignRequest) -> Result<Reviewed, SolError> {
         if req.sign_type == Some(SignType::Message) {
             return Err(SolError::Unsupported);
         }
@@ -53,7 +52,13 @@ impl SolSigner {
         if req.address.is_some_and(|a| a != own) {
             return Err(SolError::AddressMismatch);
         }
-        let reviewed = review(&req.sign_data, &own)?;
+        review(&req.sign_data, &own)
+    }
+
+    /// 审查后签名（拒签项直接返回错误）。是否需要用户确认高风险由调用方根据显示模型决定。
+    pub fn sign(&self, req: &SignRequest) -> Result<(Reviewed, Signature), SolError> {
+        let reviewed = self.review(req)?;
+        let (scheme, index) = scheme_of(&req.path).ok_or(SolError::PathMismatch)?;
         let signature = self.with_node(scheme, index, |n| {
             n.sign(&req.sign_data).map_err(|_| SolError::Derivation)
         })?;
