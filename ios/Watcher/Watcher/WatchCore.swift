@@ -3,7 +3,7 @@ import Foundation
 
 /// 观察机 Rust 核心的 Swift 封装（只含公钥与交易构造，不含任何私钥代码）。
 enum WatchCore {
-    static let expectedABI: UInt32 = 4
+    static let expectedABI: UInt32 = 5
 
     struct Failure: Error {
         let code: Int32

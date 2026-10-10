@@ -55,7 +55,7 @@ pub(crate) fn evm_code(e: EvmError) -> i32 {
 
 /// # Safety
 /// `out` 有效可写或 NULL。
-unsafe fn give<T>(out: *mut *mut T, r: Result<T, i32>) -> i32 {
+pub(crate) unsafe fn give<T>(out: *mut *mut T, r: Result<T, i32>) -> i32 {
     if out.is_null() {
         return AW_ERR_NULL_POINTER;
     }

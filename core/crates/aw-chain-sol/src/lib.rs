@@ -112,6 +112,12 @@ pub fn path_string(index: u32) -> String {
     Scheme::Phantom.path_string(index)
 }
 
+/// 解析 Base58 地址：必须正好 32 字节，且重新编码后与原文完全一致（拒绝前导 1 等多种写法）
+pub fn parse_address(s: &str) -> Option<[u8; 32]> {
+    let b: [u8; 32] = base58ck::decode(s).ok()?.try_into().ok()?;
+    (address(&b) == s).then_some(b)
+}
+
 /// 地址 = Base58(32 字节 Ed25519 公钥)，没有校验和
 pub fn address(pubkey: &[u8; 32]) -> String {
     base58ck::encode(pubkey)

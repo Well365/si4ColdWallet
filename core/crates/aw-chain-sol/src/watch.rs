@@ -116,7 +116,44 @@ pub fn finalize(req: &SignRequest, sig: &Signature) -> Result<Vec<u8>, SolError>
     Ok(tx)
 }
 
+/// 标准档优先费下限（微 lamports / 计算单元）：网络空闲、样本全为 0 时也给一点优先费
+pub const MIN_STANDARD_PRICE: u64 = 1_000;
+/// 一档优先费最多 10⁷ 微 lamports / 单元（节点样本被操纵时的上限）
+pub const MAX_PRICE: u64 = 10_000_000;
+
+/// 优先费三档（微 lamports / 计算单元，决策 D37）：取 getRecentPrioritizationFees 样本的 25 / 50 / 75 百分位；
+/// 标准档不低于 MIN_STANDARD_PRICE，快档不低于标准档的 2 倍；三档都不超过 MAX_PRICE
+pub fn priority_tiers(samples: &[u64]) -> [u64; 3] {
+    let mut v = samples.to_vec();
+    v.sort_unstable();
+    let pct = |q: usize| {
+        v.get(v.len().saturating_sub(1) * q / 100)
+            .copied()
+            .unwrap_or(0)
+    };
+    let standard = pct(50).max(MIN_STANDARD_PRICE).min(MAX_PRICE);
+    let slow = pct(25).min(standard);
+    let fast = pct(75).max(standard.saturating_mul(2)).min(MAX_PRICE);
+    [slow, standard, fast]
+}
+
 /// 交易号就是第一个签名的 Base58
 pub fn transaction_id(sig: &[u8; 64]) -> String {
     base58ck::encode(sig)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn priority_tiers_follow_rules() {
+        assert_eq!(priority_tiers(&[]), [0, 1_000, 2_000]);
+        let s: Vec<u64> = (0..=100).map(|i| i * 100).collect();
+        assert_eq!(priority_tiers(&s), [2_500, 5_000, 10_000]);
+        assert_eq!(
+            priority_tiers(&[u64::MAX; 5]),
+            [MAX_PRICE, MAX_PRICE, MAX_PRICE]
+        );
+    }
 }

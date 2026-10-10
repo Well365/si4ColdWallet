@@ -99,6 +99,28 @@ int32_t  aw_evm_fee_tiers(uint8_t has_base_fee, uint64_t base_fee, const uint64_
 int32_t  aw_evm_check_funds(const uint8_t *native_hex, size_t native_len, const uint8_t *token_hex, size_t token_len,
                             const uint8_t *value32, uint64_t gas_limit, const uint8_t *max_fee32);
 
+/* ---- Solana（P2c，决策 D34 / D37）---- */
+typedef struct AwSolPending AwSolPending;
+int32_t  aw_sol_parse_address(const uint8_t *s, size_t len, uint8_t *out32);
+/* token2022：0 SPL Token，1 Token-2022；输出关联代币账户地址文本 */
+int32_t  aw_sol_ata(const uint8_t *owner32, const uint8_t *mint32, uint8_t token2022, uint8_t **out, size_t *out_len);
+/* samples：getRecentPrioritizationFees 的 prioritizationFee；输出 JSON 数组（慢、标准、快）：
+ * {speed, label, price（微 lamports / 单元）, max_fee（lamports）, max_fee_text} */
+int32_t  aw_sol_priority_tiers(const uint64_t *samples, size_t n, uint32_t unit_limit, uint8_t **out_json, size_t *out_len);
+/* mint32 为 NULL：SOL 转账（amount 为 lamports）；否则代币转账（amount 为最小单位）。
+ * scheme：0 Phantom、1 Ledger Live、2 Ledger Live 主账户。unit_limit / unit_price 为 0 表示不设置。
+ * out_json 为与签名机相同的显示模型 */
+int32_t  aw_sol_build_transfer(const uint8_t *from32, uint32_t scheme, uint32_t index,
+                               const uint8_t *to, size_t to_len, uint64_t amount,
+                               const uint8_t *mint32, uint8_t decimals, uint8_t token2022,
+                               const uint8_t *blockhash32, uint32_t unit_limit, uint64_t unit_price,
+                               const uint8_t *request_id16,
+                               AwSolPending **out_pending, uint8_t **out_json, size_t *out_json_len);
+int32_t  aw_sol_pending_encoder(const AwSolPending *p, AwUrEncoder **out);
+/* d：已收齐 sol-signature 的解码器；输出 JSON {tx_hex, txid} */
+int32_t  aw_sol_pending_finalize(const AwSolPending *p, const AwUrDecoder *d, uint8_t **out_json, size_t *out_len);
+void     aw_sol_pending_free(AwSolPending *p);
+
 /* ---- 动画二维码 ---- */
 AwUrDecoder *aw_ur_decoder_new(void);
 void     aw_ur_decoder_free(AwUrDecoder *d);

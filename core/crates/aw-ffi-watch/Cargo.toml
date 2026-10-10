@@ -17,9 +17,11 @@ aw-ur.workspace = true
 aw-ffi-common.workspace = true
 aw-chain-btc = { workspace = true, features = ["watch"] }
 aw-chain-evm = { workspace = true, features = ["watch"] }
+aw-chain-sol = { workspace = true, features = ["watch"] }
 bitcoin.workspace = true
 
 [dev-dependencies]
+aw-chain-sol = { workspace = true, features = ["signing", "watch"] }
 aw-bip39.workspace = true
 aw-keys.workspace = true
 aw-chain-btc = { workspace = true, features = ["signing", "watch"] }

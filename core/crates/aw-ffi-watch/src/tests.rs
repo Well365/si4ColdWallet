@@ -546,3 +546,122 @@ fn evm_fee_tiers_and_funds() {
     );
     assert_eq!(check("1234", ""), AW_ERR_BAD_ARGUMENT);
 }
+
+/// P2c：观察机经 C 接口构造 Solana 转账 → 签名机（用签名代码模拟）签名 → 观察机核对并拼出交易
+#[test]
+fn sol_build_sign_finalize_through_c_abi() {
+    use aw_chain_sol::request::{decode_request, encode_signature};
+    use aw_chain_sol::sign::SolSigner;
+    use aw_chain_sol::Scheme;
+    use sol::*;
+    let seed = aw_bip39::Mnemonic::parse(MNEMONIC)
+        .unwrap()
+        .to_seed("")
+        .unwrap();
+    let signer = SolSigner::from_seed(&seed).unwrap();
+    let own = signer.public_key(Scheme::LedgerLive, 0).unwrap();
+    // 地址文本往返；非规范写法被拒绝
+    let text = aw_chain_sol::address(&own);
+    let mut back = [0u8; 32];
+    assert_eq!(
+        unsafe { aw_sol_parse_address(text.as_ptr(), text.len(), back.as_mut_ptr()) },
+        AW_OK
+    );
+    assert_eq!(back, own);
+    let bad = format!("1{text}");
+    assert_eq!(
+        unsafe { aw_sol_parse_address(bad.as_ptr(), bad.len(), back.as_mut_ptr()) },
+        AW_ERR_BAD_ARGUMENT
+    );
+    // 优先费三档
+    let samples = [0u64, 500, 2_000, 9_000];
+    let (mut p, mut l) = (core::ptr::null_mut(), 0usize);
+    assert_eq!(
+        unsafe { aw_sol_priority_tiers(samples.as_ptr(), samples.len(), 200_000, &mut p, &mut l) },
+        AW_OK
+    );
+    let json = String::from_utf8(take(p, l)).unwrap();
+    assert!(
+        json.contains(r#""speed":"standard","label":"标准","price":1000,"max_fee":5200"#),
+        "{json}"
+    );
+    // 构造 USDC 转账
+    let usdc = aw_chain_sol::programs::KNOWN_TOKENS[0].mint;
+    let to = aw_chain_sol::address(&[0x22; 32]);
+    let (mut pending, mut j, mut jl) = (core::ptr::null_mut(), core::ptr::null_mut(), 0usize);
+    let rc = unsafe {
+        aw_sol_build_transfer(
+            own.as_ptr(),
+            1,
+            0,
+            to.as_ptr(),
+            to.len(),
+            2_500_000,
+            usdc.as_ptr(),
+            6,
+            0,
+            [0x33u8; 32].as_ptr(),
+            60_000,
+            1_000,
+            [8u8; 16].as_ptr(),
+            &mut pending,
+            &mut j,
+            &mut jl,
+        )
+    };
+    assert_eq!(rc, AW_OK);
+    let json = String::from_utf8(take(j, jl)).unwrap();
+    assert!(
+        json.contains("2.5 USDC") && json.contains("已核对归属"),
+        "{json}"
+    );
+    let mut enc = core::ptr::null_mut();
+    assert_eq!(unsafe { aw_sol_pending_encoder(pending, &mut enc) }, AW_OK);
+    let d = pump(enc);
+    let req = decode_request(unsafe { aw_ffi_common::decoded_ur(d) }.unwrap()).unwrap();
+    unsafe { aw_ur_decoder_free(d) };
+    let (_, sig) = signer.sign(&req).unwrap();
+    let back = pump(aw_ffi_common::new_encoder(encode_signature(&sig).unwrap()).unwrap());
+    let (mut h, mut hl) = (core::ptr::null_mut(), 0usize);
+    assert_eq!(
+        unsafe { aw_sol_pending_finalize(pending, back, &mut h, &mut hl) },
+        AW_OK
+    );
+    let out = String::from_utf8(take(h, hl)).unwrap();
+    assert!(
+        out.contains(&format!(
+            r#""txid":"{}""#,
+            aw_chain_sol::watch::transaction_id(&sig.signature)
+        )),
+        "{out}"
+    );
+    assert!(out.contains(r#""tx_hex":"01"#), "{out}");
+    unsafe { aw_ur_decoder_free(back) };
+    unsafe { aw_sol_pending_free(pending) };
+}
+
+/// 与 aw-ffi-signer 的 sol_error_code 同一张表：序号固定
+#[test]
+fn sol_error_codes_match_signer_table() {
+    use aw_chain_sol::SolError as E;
+    for (e, n) in [
+        (E::Parse, 1),
+        (E::LookupTable, 2),
+        (E::NotSigner, 3),
+        (E::OwnerChange, 4),
+        (E::SetAuthority, 5),
+        (E::Overflow, 6),
+        (E::Unsupported, 7),
+        (E::PathMismatch, 8),
+        (E::AddressMismatch, 9),
+        (E::Derivation, 10),
+        (E::BadSignature, 11),
+        (E::RequestMismatch, 12),
+    ] {
+        assert_eq!(
+            crate::sol::sol_code(e),
+            aw_ffi_common::AW_ERR_SOL_REJECT_BASE - n,
+            "{e:?}"
+        );
+    }
+}
