@@ -32,3 +32,11 @@ All code, design, documentation and security audits in this repository were gene
 ## Status
 
 Under development; **do not use with real funds**.
+
+## Tip jar
+
+Folks, please chip in a little toward Fable 5.1's token bill.
+
+<img src="docs/assets/doge-qr.svg" width="200" alt="DOGE tip QR code">
+
+- **DOGE**: `DJARW5ixK6sfMVGZvHiPNMMzo2Aoki13Cr` (Dogecoin network only — anything else sent here is lost forever)

@@ -30,3 +30,11 @@ iPhone 双机二维码离线钱包：一台 iPhone 做**离线签名机**（永�
 ## 状态
 
 开发中，**不要用于真实资金**。
+
+## 打赏
+
+请大哥大姐们打赏一下 Fable 5.1 的 Token 费用。
+
+<img src="docs/assets/doge-qr.svg" width="200" alt="DOGE 打赏二维码">
+
+- **DOGE**：`DJARW5ixK6sfMVGZvHiPNMMzo2Aoki13Cr`（仅发 Dogecoin 网络资产，其他资产将永远丢失）
