@@ -180,7 +180,7 @@ fn recognizers_and_warnings() {
     // Seaport 钓鱼挂单：给出 NFT，收款全部付给别人
     let r = reviewed(&seaport_json(&native_item("1", SPENDER)), Some(1));
     assert_eq!(r.display.title, "Seaport 挂单（链下签名）");
-    assert!(row(&r, "你给出 1").contains("编号 1234"));
+    assert!(row(&r, "你给出（第 1 项）").contains("编号 1234"));
     assert!(row(
         &r,
         "支付给 0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed（第 1 项）"
@@ -225,9 +225,8 @@ fn recognizers_and_warnings() {
         ),
         None,
     );
-    assert!(
-        row(&r, "应用名称（对方自称，不能作为信任依据）").starts_with("（含不能安全显示的字符）0x")
-    );
+    assert!(row(&r, "应用名称（对方自称，不能作为信任依据）")
+        .starts_with("（含不能安全显示的字符，按十六进制显示）\n0x"));
     assert!(has_warning(&r, Level::Caution, "不能安全显示"));
 }
 
@@ -269,4 +268,158 @@ fn signer_rejects_inconsistent_typed_data() {
     let bad_case =
         permit_json(1, "1").replace(SPENDER, "0x5AAeb6053F3E94C9b9A09f33669435E7Ef1BeAed");
     reject(bad_case.as_bytes(), Some(1), EvmError::Parse);
+}
+
+/// 每个被签名的字段都有对应的显示行，且一律是高风险（需要确认）
+fn assert_complete(json: &str, r: &Reviewed) {
+    let d = TypedData::parse(json).unwrap().digest().unwrap();
+    for l in &d.leaves {
+        let label = format!("字段 {}（{}）", l.path, l.ty);
+        assert!(
+            r.display.rows.iter().any(|x| x.label == label),
+            "缺少 {label}"
+        );
+    }
+    assert!(r.display.has_danger(), "{}", r.display.title);
+}
+
+fn permit2_json(primary: &str, types: &str, message: &str) -> String {
+    format!(
+        r#"{{"types":{{"EIP712Domain":[{{"name":"name","type":"string"}},{{"name":"chainId","type":"uint256"}},{{"name":"verifyingContract","type":"address"}}],{types}}},"primaryType":"{primary}","domain":{{"name":"Permit2","chainId":1,"verifyingContract":"0x000000000022d473030f116ddee9f6b43ac78ba3"}},"message":{message}}}"#
+    )
+}
+
+const TOKEN_PERMISSIONS: &str =
+    r#""TokenPermissions":[{"name":"token","type":"address"},{"name":"amount","type":"uint256"}]"#;
+
+#[test]
+fn review_findings_typed_data() {
+    // M2：Seaport 必须是官方部署地址，否则按"无法识别"
+    let fake = seaport_json(&native_item("1", OWNER)).replace(
+        "0x0000000000000068f116a894984e2db1123eb395",
+        "0x1111111111111111111111111111111111111111",
+    );
+    let r = reviewed(&fake, Some(1));
+    assert_eq!(r.display.title, "结构化签名（OrderComponents）");
+    assert_complete(&fake, &r);
+    // M2：收款数量为 0 等于什么也收不到
+    let zero = seaport_json(&native_item("0", OWNER));
+    let r = reviewed(&zero, Some(1));
+    assert!(has_warning(&r, Level::Danger, "什么也收不到"));
+    assert_complete(&zero, &r);
+    // M2：收到的只有 NFT（价值无法核实）
+    let nft = seaport_json(&format!(
+        r#"{{"itemType":2,"token":"0x2222222222222222222222222222222222222222","identifierOrCriteria":"7","startAmount":"1","endAmount":"1","recipient":"{OWNER}"}}"#
+    ));
+    let r = reviewed(&nft, Some(1));
+    assert!(has_warning(&r, Level::Danger, "无法核实价值"));
+    // L2：空数组也显示
+    let empty = seaport_json("");
+    let r = reviewed(&empty, Some(1));
+    assert_eq!(
+        row(&r, "字段 consideration（ConsiderationItem[]）"),
+        "（空数组）"
+    );
+    assert!(has_warning(&r, Level::Danger, "什么也收不到"));
+
+    // M2：Permit2 合约但结构不是已知的任何一种
+    let foo = permit2_json(
+        "Foo",
+        r#""Foo":[{"name":"x","type":"uint256"}]"#,
+        r#"{"x":1}"#,
+    );
+    let r = reviewed(&foo, None);
+    assert_eq!(r.display.title, "Permit2 合约的未知签名（Foo）");
+    assert_complete(&foo, &r);
+    // PermitBatch：两个代币逐个列出
+    let batch = permit2_json(
+        "PermitBatch",
+        r#""PermitBatch":[{"name":"details","type":"PermitDetails[]"},{"name":"spender","type":"address"},{"name":"sigDeadline","type":"uint256"}],"PermitDetails":[{"name":"token","type":"address"},{"name":"amount","type":"uint160"},{"name":"expiration","type":"uint48"},{"name":"nonce","type":"uint48"}]"#,
+        &format!(
+            r#"{{"details":[{{"token":"{USDC}","amount":"5000000","expiration":1893456000,"nonce":0}},{{"token":"0xdac17f958d2ee523a2206206994597c13d831ec7","amount":"7000000","expiration":1893456000,"nonce":1}}],"spender":"{SPENDER}","sigDeadline":1893456000}}"#
+        ),
+    );
+    let r = reviewed(&batch, Some(1));
+    assert_eq!(r.display.title, "Permit2 授权（PermitBatch）");
+    assert_eq!(row(&r, "代币 1 额度"), "5 USDC");
+    assert_eq!(row(&r, "代币 2 额度"), "7 USDT");
+    assert_complete(&batch, &r);
+    // PermitWitnessTransferFrom：带 witness 时提醒
+    let witness = permit2_json(
+        "PermitWitnessTransferFrom",
+        &format!(
+            r#"{TOKEN_PERMISSIONS},"PermitWitnessTransferFrom":[{{"name":"permitted","type":"TokenPermissions"}},{{"name":"spender","type":"address"}},{{"name":"nonce","type":"uint256"}},{{"name":"deadline","type":"uint256"}},{{"name":"witness","type":"Order"}}],"Order":[{{"name":"user","type":"address"}}]"#
+        ),
+        &format!(
+            r#"{{"permitted":{{"token":"{USDC}","amount":"1000000"}},"spender":"{SPENDER}","nonce":3,"deadline":1893456000,"witness":{{"user":"{OWNER}"}}}}"#
+        ),
+    );
+    let r = reviewed(&witness, Some(1));
+    assert_eq!(
+        r.display.title,
+        "Permit2 签名转账（PermitWitnessTransferFrom）"
+    );
+    assert_eq!(row(&r, "代币 1 额度"), "1 USDC");
+    assert!(has_warning(&r, Level::Caution, "witness"));
+    assert_complete(&witness, &r);
+
+    // DAI 式 permit：allowed = false 是撤销；验证合约不在已知代币表时提醒
+    let dai = format!(
+        r#"{{"types":{{"EIP712Domain":{DOMAIN4},"Permit":[{{"name":"holder","type":"address"}},{{"name":"spender","type":"address"}},{{"name":"nonce","type":"uint256"}},{{"name":"expiry","type":"uint256"}},{{"name":"allowed","type":"bool"}}]}},"primaryType":"Permit","domain":{{"name":"Dai Stablecoin","version":"1","chainId":1,"verifyingContract":"0x3333333333333333333333333333333333333333"}},"message":{{"holder":"{OWNER}","spender":"{SPENDER}","nonce":0,"expiry":0,"allowed":false}}}}"#
+    );
+    let r = reviewed(&dai, Some(1));
+    assert_eq!(row(&r, "授权额度"), "0（撤销授权）");
+    assert_eq!(row(&r, "签名有效期至"), "0（永不过期）");
+    assert!(has_warning(&r, Level::Caution, "不在已知代币表"));
+    assert_complete(&dai, &r);
+}
+
+#[test]
+fn typed_data_size_and_syntax_limits() {
+    let secp = Secp256k1::new();
+    let s = signer(&secp);
+    let w = watcher_account(&s);
+    let check = |json: &str, want: Result<(), EvmError>| {
+        let req = request(&secp, &w, json, None);
+        assert_eq!(review(&secp, &s.account, &req).map(|_| ()), want);
+    };
+    let domain = r#"{"name":"Ether Mail","version":"1","chainId":1,"verifyingContract":"0xcccccccccccccccccccccccccccccccccccccccc"}"#;
+    // H1：单个字符串字段 1024 字节可以，1025 字节拒签
+    let mail = mail_json(domain, DOMAIN4);
+    check(&mail.replace("Hello, Bob!", &"a".repeat(1024)), Ok(()));
+    check(
+        &mail.replace("Hello, Bob!", &"a".repeat(1025)),
+        Err(EvmError::TooLong),
+    );
+    // personal_sign 超过 4096 字节拒签
+    let mut req = request(&secp, &w, "{}", None);
+    req.data_type = DataType::PersonalMessage;
+    req.sign_data = vec![b'a'; 4097];
+    assert_eq!(
+        review(&secp, &s.account, &req).map(|_| ()),
+        Err(EvmError::TooLong)
+    );
+    // M1：类型数超过 64 拒签，且立即返回（审查中的构造原本要算 20 多秒）
+    let types: Vec<String> = (0..65)
+        .map(|i| format!(r#""T{i}":[{{"name":"x","type":"uint8"}}]"#))
+        .collect();
+    let many = mail.replace(r#""Person":"#, &format!(r#"{},"Person":"#, types.join(",")));
+    let t = std::time::Instant::now();
+    check(&many, Err(EvmError::TooLong));
+    assert!(t.elapsed().as_secs() < 1);
+    // L1：位宽与数组长度只接受规范的十进制数字
+    for bad in [
+        "uint+8",
+        "bytes+4",
+        "uint08",
+        "string[+2]",
+        "string[02]",
+        "string[0]",
+    ] {
+        let j = mail.replace(
+            r#"{"name":"contents","type":"string"}"#,
+            &format!(r#"{{"name":"contents","type":"{bad}"}}"#),
+        );
+        check(&j, Err(EvmError::Parse));
+    }
 }

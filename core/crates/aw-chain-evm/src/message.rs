@@ -6,6 +6,15 @@
 
 use crate::keccak::Keccak256;
 
+/// personal_sign 消息的上限：超过就无法在屏幕上完整核对，拒签（审查 H1）
+pub const MAX_MESSAGE_BYTES: usize = 4096;
+
+/// 十六进制显示，每行 32 字节（64 个字符），界面不截断也能逐行核对
+pub fn hex_lines(b: &[u8]) -> String {
+    let lines: Vec<String> = b.chunks(32).map(aw_common::hex::encode).collect();
+    format!("0x{}", lines.join("\n"))
+}
+
 pub fn personal_hash(msg: &[u8]) -> [u8; 32] {
     let mut h = Keccak256::new();
     h.update(b"\x19Ethereum Signed Message:\n");

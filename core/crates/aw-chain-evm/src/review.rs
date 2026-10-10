@@ -8,7 +8,7 @@ use crate::abi::{self, Call};
 use crate::chains::{chain_info, token_info, PERMIT2};
 use crate::eip712::TypedData;
 use crate::keccak::keccak256;
-use crate::message::{as_text, personal_hash};
+use crate::message::{as_text, hex_lines, personal_hash, MAX_MESSAGE_BYTES};
 use crate::request::{DataType, SignRequest};
 use crate::tx::{parse_legacy, parse_typed, TxKind, UnsignedTx, VStyle};
 use crate::typed_review;
@@ -178,6 +178,9 @@ pub fn review<C: Verification>(
                 },
             })
         }
+        DataType::PersonalMessage if req.sign_data.len() > MAX_MESSAGE_BYTES => {
+            Err(EvmError::TooLong)
+        }
         DataType::PersonalMessage => Ok(Reviewed {
             display: describe_message(&req.sign_data, req.chain_id, &own, index),
             hash: personal_hash(&req.sign_data),
@@ -216,11 +219,7 @@ fn describe_message(msg: &[u8], chain_id: Option<u64>, own: &[u8; 20], index: u3
     match as_text(msg) {
         Some(t) => d.row("消息", t, Style::Text),
         None => {
-            d.row(
-                "消息（十六进制）",
-                format!("0x{}", hex::encode(msg)),
-                Style::Data,
-            );
+            d.row("消息（十六进制）", hex_lines(msg), Style::Data);
             d.warn(
                 Level::Caution,
                 "消息含有不能安全显示的字符（不可见字符、方向控制符或易混淆的外文字母），只能显示十六进制",

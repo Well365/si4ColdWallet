@@ -15,6 +15,7 @@ pub mod request;
 pub mod review;
 pub mod rlp;
 pub mod tx;
+mod typed_known;
 pub mod typed_review;
 pub mod uint;
 
@@ -64,6 +65,8 @@ pub enum EvmError {
     BlindApproval,
     /// 需要用户确认高风险警告后才能签名
     NeedsConfirmation,
+    /// 待签内容里有超长字段，签名机无法完整显示，拒签（避免"太长看不完"变成盲签）
+    TooLong,
 }
 
 impl From<rlp::RlpError> for EvmError {

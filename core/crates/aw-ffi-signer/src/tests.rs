@@ -508,3 +508,114 @@ fn passphrase_with_expected_fingerprint() {
     assert_eq!(unsafe { aw_session_word_count(s) }, 0);
     unsafe { aw_session_free(s) };
 }
+
+#[test]
+fn evm_typed_data_through_c_abi() {
+    use aw_chain_evm::request::{decode_signature, encode_request, DataType};
+    use aw_chain_evm::watch::{build_request, finalize};
+    let s = unlocked();
+    let mut enc = core::ptr::null_mut();
+    assert_eq!(unsafe { aw_session_export_account(s, 1, &mut enc) }, AW_OK);
+    let d = pump(enc);
+    let hd = aw_ur::registry::decode_hdkey(unsafe { decoded_ur(d) }.unwrap()).unwrap();
+    unsafe { aw_ur_decoder_free(d) };
+    let watch = aw_chain_evm::account_ur::account_from_hdkey(&hd).unwrap();
+    let secp = Secp256k1::new();
+    let json = r#"{"types":{"EIP712Domain":[{"name":"name","type":"string"},{"name":"chainId","type":"uint256"}],"Hello":[{"name":"text","type":"string"}]},"primaryType":"Hello","domain":{"name":"demo","chainId":11155111},"message":{"text":"hi"}}"#;
+    let req = build_request(
+        &secp,
+        &watch,
+        0,
+        json.as_bytes().to_vec(),
+        DataType::TypedData,
+        Some(11_155_111),
+        [5; 16],
+    )
+    .unwrap();
+    let dec = scanned(encode_request(&req).unwrap());
+    let (mut p, mut l) = (core::ptr::null_mut(), 0usize);
+    assert_eq!(
+        unsafe { aw_session_review_ur(s, dec, &mut p, &mut l) },
+        AW_OK
+    );
+    let shown = String::from_utf8(take(p, l)).unwrap();
+    assert!(
+        shown.contains("结构化签名（Hello）") && shown.contains("\"danger\""),
+        "{shown}"
+    );
+    // 结构化签名一律需要确认
+    let mut enc = core::ptr::null_mut();
+    assert_eq!(
+        unsafe { aw_session_sign_ur(s, dec, 0, &mut enc) },
+        AW_ERR_NEEDS_CONFIRMATION
+    );
+    assert!(enc.is_null());
+    assert_eq!(unsafe { aw_session_sign_ur(s, dec, 1, &mut enc) }, AW_OK);
+    unsafe { aw_ur_decoder_free(dec) };
+    let back = pump(enc);
+    let sig = decode_signature(unsafe { decoded_ur(back) }.unwrap()).unwrap();
+    unsafe { aw_ur_decoder_free(back) };
+    assert!([27, 28].contains(&sig.signature[64]));
+    assert_eq!(finalize(&secp, &watch, &req, &sig).unwrap(), sig.signature);
+    // 域的链 ID 与请求不一致：拒签
+    let mut other = req.clone();
+    other.chain_id = Some(1);
+    let dec = scanned(encode_request(&other).unwrap());
+    let mut enc = core::ptr::null_mut();
+    assert_eq!(
+        unsafe { aw_session_sign_ur(s, dec, 1, &mut enc) },
+        AW_ERR_EVM_REJECT_BASE - 5
+    );
+    unsafe { aw_ur_decoder_free(dec) };
+    unsafe { aw_session_free(s) };
+}
+
+#[test]
+fn fingerprint_mismatch_leaves_no_usable_account() {
+    let s = unlocked(); // 先正常解锁（无 passphrase，测试网）
+    assert_eq!(
+        unsafe { aw_session_set_words(s, ABOUT.as_ptr(), 12) },
+        AW_OK
+    );
+    assert_eq!(
+        unsafe { aw_session_expect_fingerprint(s, 1, 0x1234_5678) },
+        AW_OK
+    );
+    for _ in 0..3 {
+        let pass = b"wrong";
+        assert_eq!(
+            unsafe { aw_session_set_passphrase(s, pass.as_ptr(), pass.len()) },
+            AW_OK
+        );
+        assert_eq!(
+            unsafe { aw_session_unlock(s, 1, [7u8; 32].as_ptr()) },
+            AW_ERR_FINGERPRINT_MISMATCH
+        );
+    }
+    // 不重设 passphrase 直接再解锁：按空 passphrase 计算，仍与预期指纹核对
+    assert_eq!(
+        unsafe { aw_session_unlock(s, 1, [7u8; 32].as_ptr()) },
+        AW_ERR_FINGERPRINT_MISMATCH
+    );
+    // 之前解锁得到的账户已全部丢弃
+    let (mut p, mut l) = (core::ptr::null_mut(), 0usize);
+    assert_eq!(
+        unsafe { aw_session_address(s, 0, 0, &mut p, &mut l) },
+        AW_ERR_STATE
+    );
+    let mut enc = core::ptr::null_mut();
+    assert_eq!(
+        unsafe { aw_session_export_account(s, 0, &mut enc) },
+        AW_ERR_STATE
+    );
+    assert_eq!(unsafe { aw_session_fingerprint(s) }, 0);
+    // has = 0 取消核对后可以解锁；成功后预期指纹被清除
+    assert_eq!(unsafe { aw_session_expect_fingerprint(s, 0, 0) }, AW_OK);
+    assert_eq!(
+        unsafe { aw_session_unlock(s, 1, [7u8; 32].as_ptr()) },
+        AW_OK
+    );
+    assert_eq!(unsafe { aw_session_fingerprint(s) }, 0x73c5_da0a);
+    assert!(unsafe { &*s }.expected_fingerprint.is_none());
+    unsafe { aw_session_free(s) };
+}

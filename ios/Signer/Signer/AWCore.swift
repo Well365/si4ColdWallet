@@ -79,6 +79,7 @@ enum AWCore {
             8: "Safe 多签的 DELEGATECALL 可改写多签合约本身，拒绝签名", 9: "数值溢出",
             10: "密钥派生失败", 11: "签名自检失败", 12: "签名无效", 13: "签名与请求不对应",
             14: "预先批准一笔看不到内容的多签交易（Safe approveHash），拒绝签名",
+            16: "请求里有超长的字段或消息，签名机无法完整显示，拒绝签名（避免盲签）",
         ]
         if code <= AW_ERR_EVM_REJECT_BASE, let r = evmReasons[AW_ERR_EVM_REJECT_BASE - code] { return r }
         if code <= AW_ERR_TX_REJECT_BASE, let r = reasons[AW_ERR_TX_REJECT_BASE - code] { return r }

@@ -329,6 +329,11 @@ pub unsafe extern "C" fn aw_session_unlock(
             1 => Network::Testnet,
             _ => return Err(AW_ERR_BAD_ARGUMENT),
         };
+        // 审查 L4：无论成功与否，先丢弃上一次解锁留下的一切，失败时不会残留旧账户
+        sess.signer = None;
+        sess.evm = None;
+        sess.addresses = None;
+        sess.secp = None;
         let m = sess.mnemonic.as_ref().ok_or(AW_ERR_STATE)?;
         let pass = match &sess.passphrase {
             Some(p) => core::str::from_utf8(p.expose()).map_err(|_| AW_ERR_BAD_ARGUMENT)?,
@@ -358,6 +363,7 @@ pub unsafe extern "C" fn aw_session_unlock(
         // 随机数审查 M2：解锁后不再需要助记词与 passphrase，立即清除（各自的 Drop 负责清零）
         sess.mnemonic = None;
         sess.passphrase = None;
+        sess.expected_fingerprint = None;
         sess.secp = Some(secp);
         Ok(())
     })();
@@ -498,6 +504,7 @@ fn evm_error_code(e: EvmError) -> i32 {
         EvmError::RequestMismatch => 13,
         EvmError::BlindApproval => 14,
         EvmError::NeedsConfirmation => return AW_ERR_NEEDS_CONFIRMATION,
+        EvmError::TooLong => 16,
     };
     AW_ERR_EVM_REJECT_BASE - n
 }

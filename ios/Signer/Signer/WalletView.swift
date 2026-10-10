@@ -174,7 +174,8 @@ struct ReviewView: View {
         switch r.style {
         case "address": Text(grouped(r.value)).font(.system(.callout, design: .monospaced)).textSelection(.disabled)
         case "amount": Text(r.value).bold()
-        case "data": Text(r.value).font(.system(.caption, design: .monospaced)).lineLimit(6)
+        // 不截断：被签名的内容必须完整可见（Rust 侧已限制长度并按行切分）
+        case "data": Text(r.value).font(.system(.caption, design: .monospaced))
         default: Text(r.value)
         }
     }

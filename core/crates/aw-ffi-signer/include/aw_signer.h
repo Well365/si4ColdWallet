@@ -65,8 +65,9 @@ int32_t  aw_session_word_at(const AwSession *s, size_t i);
 int32_t  aw_session_set_passphrase(AwSession *s, const uint8_t *p, size_t len);
 /* 解锁时核对的预期指纹（大端 u32）；has = 0 表示不核对 */
 int32_t  aw_session_expect_fingerprint(AwSession *s, uint8_t has, uint32_t fp);
-/* 解锁成功后会话中的助记词与 passphrase 立即清除（word_count 变为 0）。
- * 设置了预期指纹而结果不符时返回 AW_ERR_FINGERPRINT_MISMATCH：清除 passphrase，保留助记词。 */
+/* 解锁成功后会话中的助记词、passphrase、预期指纹立即清除（word_count 变为 0）。
+ * 设置了预期指纹而结果不符时返回 AW_ERR_FINGERPRINT_MISMATCH：清除 passphrase，保留助记词与预期指纹；
+ * 调用方必须先重新 set_passphrase 再解锁（不重设时按空 passphrase 计算，仍会与预期指纹核对）。 */
 int32_t  aw_session_unlock(AwSession *s, uint8_t testnet, const uint8_t *rand32);
 uint32_t aw_session_fingerprint(const AwSession *s);
 /* 第 index 个收款地址，JSON：{chain, path, address, note, explorers:[{name, url}]}。

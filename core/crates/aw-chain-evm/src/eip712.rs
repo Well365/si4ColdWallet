@@ -15,7 +15,13 @@ use aw_common::json_read::{self, Value};
 
 /// 消息中可显示的叶子值上限：超过就拒签，避免"太长看不完"变成盲签
 pub const MAX_LEAVES: usize = 256;
+/// 单个 string / bytes 字段的字节数上限：超过就无法在屏幕上完整核对，拒签
+pub const MAX_LEAF_BYTES: usize = 1024;
 const MAX_ARRAY: usize = 1024;
+/// 结构体类型数、每个类型的字段数、全部字段数的上限：防止构造的数据让签名机长时间计算（审查 M1）
+const MAX_TYPES: usize = 64;
+const MAX_FIELDS: usize = 64;
+const MAX_TOTAL_FIELDS: usize = 512;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Field {
@@ -30,6 +36,8 @@ pub struct TypedData {
     pub primary: String,
     pub domain: Value,
     pub message: Value,
+    /// 各结构体的 typeHash，解析时算好一次（审查 M1：逐个实例重算是平方级开销）
+    type_hashes: Vec<(String, [u8; 32])>,
 }
 
 /// 显示用的叶子：路径（如 `details.amount`、`items[0]`）、Solidity 类型、格式化后的值
@@ -49,6 +57,8 @@ pub enum LeafValue {
     Bool(bool),
     Bytes(Vec<u8>),
     Str(String),
+    /// 空数组（没有元素也要显示出来，用户才看得出它是空的）
+    EmptyArray,
 }
 
 fn is_ident(s: &str) -> bool {
@@ -68,11 +78,16 @@ enum Base {
     Int(u32),
 }
 
-fn width(s: &str) -> Option<u32> {
-    if s.starts_with('0') {
+/// 规范的十进制正整数：只允许 ASCII 数字、不得以 0 开头（Rust 的 parse 会接受 "+8"，审查 L1）
+fn decimal(s: &str) -> Option<usize> {
+    if s.is_empty() || s.starts_with('0') || !s.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
-    let n: u32 = s.parse().ok()?;
+    s.parse().ok()
+}
+
+fn width(s: &str) -> Option<u32> {
+    let n = u32::try_from(decimal(s)?).ok()?;
     (n.is_multiple_of(8) && (8..=256).contains(&n)).then_some(n)
 }
 
@@ -84,7 +99,7 @@ fn base(ty: &str) -> Option<Base> {
         "bytes" => Base::Bytes,
         _ => {
             if let Some(n) = ty.strip_prefix("bytes") {
-                let k: usize = n.parse().ok().filter(|_| !n.starts_with('0'))?;
+                let k = decimal(n)?;
                 if !(1..=32).contains(&k) {
                     return None;
                 }
@@ -98,6 +113,32 @@ fn base(ty: &str) -> Option<Base> {
     })
 }
 
+fn push_leaf(
+    leaves: &mut Vec<Leaf>,
+    path: &str,
+    ty: &str,
+    value: LeafValue,
+) -> Result<(), EvmError> {
+    leaves.push(Leaf {
+        path: path.to_owned(),
+        ty: ty.to_owned(),
+        value,
+    });
+    if leaves.len() > MAX_LEAVES {
+        return Err(EvmError::TooLong);
+    }
+    Ok(())
+}
+
+/// 去掉全部数组后缀后的元素类型：`T[2][]` → `T`
+fn innermost(ty: &str) -> &str {
+    let mut t = ty;
+    while let Some((elem, _)) = split_array(t) {
+        t = elem;
+    }
+    t
+}
+
 /// 去掉最外层数组后缀：`T[3]` → (`T`, Some(3))；`T[]` → (`T`, None)
 fn split_array(ty: &str) -> Option<(&str, Option<usize>)> {
     let inner = ty.strip_suffix(']')?;
@@ -106,11 +147,7 @@ fn split_array(ty: &str) -> Option<(&str, Option<usize>)> {
     if len.is_empty() {
         return Some((elem, None));
     }
-    let n: usize = len
-        .parse()
-        .ok()
-        .filter(|n| *n > 0 && !len.starts_with('0'))?;
-    Some((elem, Some(n)))
+    Some((elem, Some(decimal(len)?)))
 }
 
 impl TypedData {
@@ -157,13 +194,19 @@ impl TypedData {
             .and_then(Value::as_str)
             .ok_or(EvmError::Parse)?
             .to_owned();
-        let td = TypedData {
+        let mut td = TypedData {
             types,
             primary,
             domain: root.get("domain").cloned().ok_or(EvmError::Parse)?,
             message: root.get("message").cloned().ok_or(EvmError::Parse)?,
+            type_hashes: Vec::new(),
         };
         td.validate()?;
+        td.type_hashes = td
+            .types
+            .iter()
+            .map(|(n, _)| (n.clone(), keccak256(td.encode_type(n).as_bytes())))
+            .collect();
         Ok(td)
     }
 
@@ -176,16 +219,24 @@ impl TypedData {
 
     /// 类型名有效：基本类型、已声明的结构体、或它们的数组
     fn type_ok(&self, ty: &str) -> bool {
-        match split_array(ty) {
-            Some((elem, _)) => self.type_ok(elem),
-            None => base(ty).is_some() || self.fields(ty).is_some(),
-        }
+        let t = innermost(ty);
+        base(t).is_some() || self.fields(t).is_some()
     }
 
     fn validate(&self) -> Result<(), EvmError> {
+        let total: usize = self.types.iter().map(|(_, f)| f.len()).sum();
+        if self.types.len() > MAX_TYPES || total > MAX_TOTAL_FIELDS {
+            return Err(EvmError::TooLong);
+        }
         for (name, fields) in &self.types {
             if base(name).is_some() {
                 return Err(EvmError::Parse); // 结构体不能与基本类型同名
+            }
+            if fields.len() > MAX_FIELDS {
+                return Err(EvmError::TooLong);
+            }
+            if fields.is_empty() && name != "EIP712Domain" {
+                return Err(EvmError::Parse); // 空结构体：签了什么都看不出来
             }
             if fields.iter().any(|f| !self.type_ok(&f.ty)) {
                 return Err(EvmError::Parse);
@@ -211,28 +262,26 @@ impl TypedData {
         Ok(())
     }
 
-    /// 结构体及其（直接或间接）引用的所有结构体
-    fn deps(&self, ty: &str, out: &mut Vec<String>) {
-        let mut t = ty;
-        while let Some((elem, _)) = split_array(t) {
-            t = elem;
+    /// 结构体及其（直接或间接）引用的所有结构体（迭代实现，不依赖调用栈深度）
+    fn deps(&self, ty: &str) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        let mut stack = vec![innermost(ty)];
+        while let Some(t) = stack.pop() {
+            if out.iter().any(|x| x == t) {
+                continue;
+            }
+            let Some(fields) = self.fields(t) else {
+                continue;
+            };
+            out.push(t.to_owned());
+            stack.extend(fields.iter().map(|f| innermost(&f.ty)));
         }
-        if out.iter().any(|x| x == t) {
-            return;
-        }
-        let Some(fields) = self.fields(t) else {
-            return;
-        };
-        out.push(t.to_owned());
-        for f in fields {
-            self.deps(&f.ty, out);
-        }
+        out
     }
 
     /// encodeType：主类型在前，其余依赖按名字排序
     pub fn encode_type(&self, ty: &str) -> String {
-        let mut deps = Vec::new();
-        self.deps(ty, &mut deps);
+        let deps = self.deps(ty);
         let (head, mut rest): (Vec<String>, Vec<String>) = deps.into_iter().partition(|d| d == ty);
         rest.sort();
         let mut s = String::new();
@@ -248,7 +297,10 @@ impl TypedData {
     }
 
     pub fn type_hash(&self, ty: &str) -> [u8; 32] {
-        keccak256(self.encode_type(ty).as_bytes())
+        self.type_hashes
+            .iter()
+            .find(|(n, _)| n == ty)
+            .map_or_else(|| keccak256(self.encode_type(ty).as_bytes()), |(_, h)| *h)
     }
 
     /// hashStruct；同时收集显示用的叶子
@@ -294,6 +346,9 @@ impl TypedData {
             if items.len() > MAX_ARRAY || fixed.is_some_and(|n| n != items.len()) {
                 return Err(EvmError::Parse);
             }
+            if items.is_empty() {
+                push_leaf(leaves, path, ty, LeafValue::EmptyArray)?;
+            }
             let mut h = Keccak256::new();
             for (i, it) in items.iter().enumerate() {
                 h.update(&self.encode_value(elem, it, &format!("{path}[{i}]"), leaves)?);
@@ -304,14 +359,7 @@ impl TypedData {
             return self.hash_struct(ty, v, path, leaves);
         }
         let (word, value) = encode_atomic(base(ty).ok_or(EvmError::Parse)?, v)?;
-        leaves.push(Leaf {
-            path: path.to_owned(),
-            ty: ty.to_owned(),
-            value,
-        });
-        if leaves.len() > MAX_LEAVES {
-            return Err(EvmError::Unsupported);
-        }
+        push_leaf(leaves, path, ty, value)?;
         Ok(word)
     }
 
@@ -388,10 +436,16 @@ fn encode_atomic(b: Base, v: &Value) -> Result<([u8; 32], LeafValue), EvmError> 
         },
         Base::Str => {
             let s = v.as_str().ok_or(EvmError::Parse)?;
+            if s.len() > MAX_LEAF_BYTES {
+                return Err(EvmError::TooLong);
+            }
             Ok((keccak256(s.as_bytes()), LeafValue::Str(s.to_owned())))
         }
         Base::Bytes => {
             let b = hex_bytes(v)?;
+            if b.len() > MAX_LEAF_BYTES {
+                return Err(EvmError::TooLong);
+            }
             Ok((keccak256(&b), LeafValue::Bytes(b)))
         }
         Base::FixedBytes(n) => {
