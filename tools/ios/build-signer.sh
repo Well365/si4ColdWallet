@@ -45,7 +45,7 @@ fi
 rm -rf "$REPO_ROOT/build/xcode" "$REPO_ROOT/build/xcode-obj"
 xc=(env -i HOME="$HOME" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="${TMPDIR:-/tmp}" USER="${USER:-}"
     xcodebuild -project ios/Signer/Signer.xcodeproj -target Signer -configuration Release -sdk "$sdk"
-    ARCHS=arm64 SYMROOT="$REPO_ROOT/build/xcode" OBJROOT="$REPO_ROOT/build/xcode-obj" "${sign[@]}")
+    ARCHS=arm64 SYMROOT="$REPO_ROOT/build/xcode" OBJROOT="$REPO_ROOT/build/xcode-obj" ${sign[@]+"${sign[@]}"})  # bash 3.2 + set -u：空数组不能直接展开
 
 # 实际生效的链接参数必须正好是仓库里写的那一个静态库
 ldflags="$("${xc[@]}" -showBuildSettings 2>/dev/null | awk -F' = ' '$1 ~ /^ *OTHER_LDFLAGS$/ {print $2}')"

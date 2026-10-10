@@ -51,7 +51,7 @@ fi
 rm -rf "$REPO_ROOT/build/xcode-watcher" "$REPO_ROOT/build/xcode-watcher-obj"
 xc=(env -i HOME="$HOME" PATH=/usr/bin:/bin:/usr/sbin:/sbin TMPDIR="${TMPDIR:-/tmp}" USER="${USER:-}"
     xcodebuild -project ios/Watcher/Watcher.xcodeproj -target Watcher -configuration Release -sdk "$sdk"
-    ARCHS=arm64 SYMROOT="$REPO_ROOT/build/xcode-watcher" OBJROOT="$REPO_ROOT/build/xcode-watcher-obj" "${sign[@]}")
+    ARCHS=arm64 SYMROOT="$REPO_ROOT/build/xcode-watcher" OBJROOT="$REPO_ROOT/build/xcode-watcher-obj" ${sign[@]+"${sign[@]}"})  # bash 3.2 + set -u：空数组不能直接展开
 ldflags="$("${xc[@]}" -showBuildSettings 2>/dev/null | awk -F' = ' '$1 ~ /^ *OTHER_LDFLAGS$/ {print $2}')"
 [ "$ldflags" = "$REPO_ROOT/ios/Watcher/../../build/lib/$target/libaw_watch.a" ] || { echo "OTHER_LDFLAGS 与预期不符：'$ldflags'"; exit 1; }
 log="build/xcodebuild-watcher-$kind.log"
