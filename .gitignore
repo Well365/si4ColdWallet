@@ -5,3 +5,32 @@ xcuserdata/
 DerivedData/
 .DS_Store
 /tools/repro/out/
+
+# 签名材料与本地密钥：永远不进仓库
+*.p12
+*.pfx
+*.p8
+*.mobileprovision
+*.provisionprofile
+*.keystore
+*.jks
+.env
+.env.*
+
+# 构建产物与分发包
+*.ipa
+*.apk
+*.aab
+*.xcarchive
+*.dSYM/
+
+# 编辑器、SwiftPM 与覆盖率杂项
+.idea/
+.vscode/
+.build/
+*.swp
+*.profraw
+
+# 例外：third_party 是上游源码的审计副本，保持与上游一致，不套用上面的编辑器规则
+!/third_party/**/.vscode/
+!/third_party/**/.idea/
