@@ -27,3 +27,6 @@
 /usr/lib/swift/libswift_Concurrency.dylib
 /usr/lib/swift/libswiftos.dylib
 /usr/lib/swift/libswiftsimd.dylib
+# 2026-10-11（D36）：Xcode 27 SDK 中 SwiftUI 传递导入 CoreLocation，Swift 自动链接其覆盖层（弱链接）。
+# 签名机不调用任何定位 API，Info.plist 没有定位权限键；保留此项需在 C4 的导入白名单中同样不出现 CoreLocation API。
+/usr/lib/swift/libswiftCoreLocation.dylib

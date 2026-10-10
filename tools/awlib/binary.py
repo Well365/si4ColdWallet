@@ -83,9 +83,11 @@ TEXT_SECTIONS_ALLOWED = {
     "__objc_classname", "__objc_methlist", "__objc_methname", "__objc_methtype", "__info_plist",
     "__swift5_assocty", "__swift5_builtin", "__swift5_capture", "__swift5_entry", "__swift5_fieldmd",
     "__swift5_mpenum", "__swift5_proto", "__swift5_protos", "__swift5_reflstr", "__swift5_typeref",
-    "__swift5_types", "__swift5_acfuncs", "__swift_as_entry", "__swift_as_ret", "__swift5_replace",
-    "__swift5_replac2",
+    "__swift5_types", "__swift5_acfuncs", "__swift_as_entry", "__swift_as_ret", "__swift_as_cont",
+    "__swift5_replace", "__swift5_replac2",
 }
+# Swift 异步函数的入口 / 返回 / 续体表（D36）：每项是指向代码的 32 位相对指针，必须全部落在 __text 内
+SWIFT_ASYNC_POINTER_TABLES = {"__swift_as_entry", "__swift_as_ret", "__swift_as_cont"}
 CODE_SECTIONS = {"__text", "__stubs", "__auth_stubs", "__objc_stubs", "__stub_helper"}
 # 只允许通过 GOT 槽位绑定的受限导入（不允许出现在数据区的函数指针里）
 RESTRICTED_BIND = {"__os_log_impl"}
@@ -221,7 +223,26 @@ def section_violations(f):
     bad = [f"非 __TEXT 段具有执行权限：{name}" for name, prot in segs.items() if prot & 0x4 and name != "__TEXT"]
     bad += [f"__TEXT 中出现非标准节：{sect}" for seg, sect, *_ in secs
             if seg == "__TEXT" and sect not in TEXT_SECTIONS_ALLOWED]
-    return bad + code_violations(data, secs) + data_svc_violations(data, secs) + fixup_violations(f, secs)
+    return (bad + code_violations(data, secs) + data_svc_violations(data, secs)
+            + async_table_violations(data, secs) + fixup_violations(f, secs))
+
+
+def async_table_violations(data, secs):
+    """__swift_as_* 只能是相对指针表：长度为 4 的倍数，每项指向 __text 内部（不是可执行代码，也不能指到别处）。"""
+    text = [(a, a + n) for seg, sect, a, n, _ in secs if seg == "__TEXT" and sect == "__text"]
+    bad = []
+    for seg, sect, addr, size, off in secs:
+        if seg != "__TEXT" or sect not in SWIFT_ASYNC_POINTER_TABLES:
+            continue
+        if size % 4:
+            bad.append(f"{sect} 长度不是 4 的倍数（{size}）")
+            continue
+        for i in range(0, size, 4):
+            rel = int.from_bytes(data[off + i:off + i + 4], "little", signed=True)
+            t = addr + i + rel
+            if not any(lo <= t < hi for lo, hi in text):
+                bad.append(f"{sect} 0x{addr + i:x}：相对指针指向 __text 以外 0x{t:x}")
+    return bad
 
 
 _BRANCH_TARGETS = {}

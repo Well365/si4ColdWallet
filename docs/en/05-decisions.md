@@ -257,3 +257,17 @@ Each decision: Context → Decision → Cost. Overturning any decision requires 
 - **ABI**: `aw-ffi-watch` gained two functions, ABI version 3 → 4; `aw-ffi-signer`'s `aw_session_address` gained a `scheme` parameter in D34, ABI version 4 → 5 (Swift updated accordingly).
 - **Not done**: sending SOL / NEAR / TRON waits for the Signer to implement signing on those chains (P2c / P2d); transaction formats other than EIP-1559 (the Watcher only builds type-2 transactions); cross-checking balances across several nodes (currently one node, with manual switching for comparison).
 
+## D36 · Signer artifact checks accept the new Xcode 27 / Swift 6.3 symbols (2026-10-11, user decision: review, then allowlist)
+
+- **Background**: built with Xcode 27.0, the Signer failed the C4/C5 artifact checks (audit P1-7): 48 imports not on the allowlist, a new `__TEXT` section `__swift_as_cont`, and an autolinked `libswiftCoreLocation.dylib`. The user chose to review each item and allowlist it rather than install Xcode 26.6.
+- **Review findings** (source library of each import checked with `xcrun dyld_info -imports`):
+  - 30 from libswiftCore: register-specific `swift_retain_xN` / `swift_release_xN` entry points (a compiler optimization, same semantics as retain/release), exclusivity checks `swift_beginAccess/endAccess`, `swift_initStackObject`, `swift_getExistentialTypeMetadata`, the value-witness table for `()`.
+  - 15 from SwiftUI: `LazyState` (the new SDK's implementation of `@State`) and metadata/constructors of `Binding / ForEach / Section / EmptyView` (3 are weak imports).
+  - `___chkstk_darwin` from libSystem: the stack probe for large frames.
+  - `__swift_FORCE_LOAD_$_swiftCoreLocation` and `libswiftCoreLocation.dylib` (weak): in the Xcode 27 SDK SwiftUI transitively imports CoreLocation and Swift autolinks its overlay. The Signer binary uses no CoreLocation API and its Info.plist has no location-permission key, so the system grants it no location capability.
+  - `__swift_as_cont`: same structure as the already-allowed `__swift_as_entry` / `__swift_as_ret` (section flags 0, 32-bit relative pointers) — the async continuation table, not code.
+  - None of these carries a forbidden capability (network, pasteboard, dynamic loading); the deny lists are unchanged.
+- **New check**: `__swift_as_entry / __swift_as_ret / __swift_as_cont` must be relative-pointer tables whose length is a multiple of 4 and whose every entry points inside `__text` (so these allowlisted sections cannot smuggle data or point elsewhere). Verified to fail on a copy with one entry tampered.
+- **Result**: the Xcode 27 device build of the Signer passes C4/C5 (799 imports, 27 linked libraries).
+- **Cost**: the allowlist grows with the toolchain; `TOOLCHAIN.lock` still says Xcode 26.6 and version enforcement (the other half of audit P1-7) is not done — switching Xcode versions requires reviewing new symbols again.
+

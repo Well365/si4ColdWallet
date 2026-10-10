@@ -255,3 +255,17 @@
 - **ABI**：`aw-ffi-watch` 加两个函数，ABI 版本 3 → 4；`aw-ffi-signer` 的 `aw_session_address` 在 D34 增加了 `scheme` 参数，ABI 版本 4 → 5（Swift 侧同步）。
 - **未做**：SOL / NEAR / TRON 的发送要等签名机实现这些链的签名（P2c / P2d）；EIP-1559 以外的旧式交易格式（观察机只构造 type-2 交易）；多节点交叉核对余额（目前单节点 + 用户可手动换节点对照）。
 
+## D36 · 签名机产物检查接受 Xcode 27 / Swift 6.3 的新符号（2026-10-11，用户决定：审查后加白名单）
+
+- **背景**：用 Xcode 27.0 构建时，签名机的 C4/C5 产物检查失败（审计 P1-7）：48 个导入不在白名单、`__TEXT` 中出现新节 `__swift_as_cont`、自动链接了 `libswiftCoreLocation.dylib`。用户选择逐项审查后加入白名单，而不是改装 Xcode 26.6。
+- **审查结论**（来源库用 `xcrun dyld_info -imports` 逐个核对）：
+  - libswiftCore 的 30 个：按寄存器拆分的 `swift_retain_xN` / `swift_release_xN`（编译器优化，语义同 retain/release）、访问独占检查 `swift_beginAccess/endAccess`、`swift_initStackObject`、`swift_getExistentialTypeMetadata`、`()` 的值见证表。
+  - SwiftUI 的 15 个：新 SDK 中 `@State` 的实现 `LazyState`，以及 `Binding / ForEach / Section / EmptyView` 的元数据与构造函数（3 个为弱导入）。
+  - libSystem 的 `___chkstk_darwin`：大栈帧的栈探测。
+  - `__swift_FORCE_LOAD_$_swiftCoreLocation` 与 `libswiftCoreLocation.dylib`（弱链接）：Xcode 27 SDK 中 SwiftUI 传递导入 CoreLocation，Swift 自动链接其覆盖层。签名机二进制中没有任何 CoreLocation API，Info.plist 没有定位权限键，系统不会给它定位能力。
+  - `__swift_as_cont`：与已允许的 `__swift_as_entry` / `__swift_as_ret` 结构相同（节属性 0、32 位相对指针），是异步函数续体表，不是代码。
+  - 以上都不含网络、剪贴板、动态加载等禁用能力；禁用符号与子串规则不变。
+- **新增检查**：`__swift_as_entry / __swift_as_ret / __swift_as_cont` 必须是长度为 4 的倍数的相对指针表，每一项都指向 `__text` 内部（防止借这些"白名单节"夹带数据或指向别处）。用篡改过一项的副本验证过会报错。
+- **结果**：Xcode 27 构建的真机签名机 C4/C5 全部通过（799 个导入、27 个链接库）。
+- **代价**：白名单随工具链变大；`TOOLCHAIN.lock` 仍写着 Xcode 26.6，版本强制检查（审计 P1-7 的另一半）仍未做——换 Xcode 版本时需要重新审查新增符号。
+

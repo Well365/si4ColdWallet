@@ -798,3 +798,58 @@ _$sScTss5NeverORs_rlE5valuexvgTu
 _$sytN
 _objc_retain_x25
 _swift_task_create
+# ---- 2026-10-11 审查加入（Xcode 27.0 / Swift 6.3 工具链，决策 D36）----
+# libswiftCore：按寄存器拆分的 retain/release 入口（_swift_retain_xN / _swift_release_xN，编译器优化，语义同 swift_retain/release）、
+#   访问独占检查（swift_beginAccess / swift_endAccess）、栈上对象初始化、存在类型元数据、() 的值见证表。
+# SwiftUI：新 SDK 中 @State 的实现 LazyState、Binding / ForEach / Section / EmptyView 的元数据与构造函数（后三个为弱导入）。
+# libSystem：___chkstk_darwin（大栈帧的栈探测，编译器生成）。
+# libswiftCoreLocation：__swift_FORCE_LOAD_$_swiftCoreLocation（SwiftUI 传递导入引起的覆盖层自动链接标记；二进制中没有任何 CoreLocation API）。
+# 逐个核对过来源库（xcrun dyld_info -imports），均不含网络、剪贴板、动态加载能力。
+_$s7SwiftUI7BindingVMn
+_$s7SwiftUI7ForEachV7contentyq0_7ElementQzcvs
+_$s7SwiftUI7ForEachVAA7Element_2IDQZRs_s12IdentifiableADRpzrlE6create_7contentACyxq_q0_Gx_q0_AHctFZ
+_$s7SwiftUI7ForEachVAAE6create_2id7contentACyxq_q0_Gx_s7KeyPathCy7ElementQzq_Gq0_AKctFZ
+_$s7SwiftUI7SectionV6create10isExpanded7content6header6footerACyxq_q0_GAA7BindingVySbGSg_q_xq0_tFZ
+_$s7SwiftUI9EmptyViewVN
+_$s7SwiftUI9LazyStateV12wrappedValueACyxGxyXA_tcfC
+_$s7SwiftUI9LazyStateV12wrappedValuexvg
+_$s7SwiftUI9LazyStateV12wrappedValuexvs
+_$s7SwiftUI9LazyStateV14projectedValueAA7BindingVyxGvg
+_$s7SwiftUI9LazyStateV7StorageO5valueyAEyx_GxcAGmlFWC
+_$s7SwiftUI9LazyStateV7StorageOMn
+_$s7SwiftUI9LazyStateVMa
+_$s7SwiftUI9LazyStateVMn
+_$syycWV
+___chkstk_darwin
+__swift_FORCE_LOAD_$_swiftCoreLocation
+_swift_beginAccess
+_swift_endAccess
+_swift_getExistentialTypeMetadata
+_swift_initStackObject
+_swift_release_x1
+_swift_release_x19
+_swift_release_x20
+_swift_release_x21
+_swift_release_x22
+_swift_release_x23
+_swift_release_x24
+_swift_release_x25
+_swift_release_x26
+_swift_release_x27
+_swift_release_x8
+_swift_release_x9
+_swift_retain_x1
+_swift_retain_x10
+_swift_retain_x19
+_swift_retain_x2
+_swift_retain_x20
+_swift_retain_x21
+_swift_retain_x22
+_swift_retain_x23
+_swift_retain_x24
+_swift_retain_x25
+_swift_retain_x26
+_swift_retain_x27
+_swift_retain_x28
+_swift_retain_x8
+_swift_retain_x9
