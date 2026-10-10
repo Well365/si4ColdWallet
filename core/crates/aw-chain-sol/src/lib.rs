@@ -9,12 +9,23 @@
 
 pub mod message;
 pub mod programs;
+pub mod review;
 
 /// Solana 审查与签名的错误
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SolError {
     /// 消息无法完整、严格地解析
     Parse,
+    /// v0 消息使用地址查找表：被引用的地址不在消息里，签名机离线无法核实
+    LookupTable,
+    /// 本账户不是这笔交易的签名者
+    NotSigner,
+    /// System Assign / AssignWithSeed：改变账户归属的程序
+    OwnerChange,
+    /// SPL Token SetAuthority：交出代币账户或 mint 的控制权
+    SetAuthority,
+    /// 数值溢出
+    Overflow,
 }
 
 /// 派生方案（D34）。`ALL` 的顺序就是 FFI `aw_session_address` 的 scheme 编号
