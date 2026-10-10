@@ -162,21 +162,25 @@ struct EvmNetwork: Hashable, Identifiable {
     let chainId: UInt64
     let symbol: String
     let defaultRPC: String
+    /// 区块浏览器根地址（以 / 结尾）
     let explorer: String
     let tokens: [EvmToken]
     var id: UInt64 { chainId }
 
+    func txURL(_ hash: String) -> URL? { Explorer.url(explorer + "tx/", hash) }
+    func addressURL(_ address: String) -> URL? { Explorer.url(explorer + "address/", address) }
+
     static let all: [EvmNetwork] = [
         EvmNetwork(name: "Sepolia 测试网", chainId: 11_155_111, symbol: "SepoliaETH",
-                   defaultRPC: "https://ethereum-sepolia-rpc.publicnode.com", explorer: "https://sepolia.etherscan.io/tx/", tokens: []),
+                   defaultRPC: "https://ethereum-sepolia-rpc.publicnode.com", explorer: "https://sepolia.etherscan.io/", tokens: []),
         EvmNetwork(name: "BNB Smart Chain 测试网", chainId: 97, symbol: "tBNB",
-                   defaultRPC: "https://bsc-testnet-rpc.publicnode.com", explorer: "https://testnet.bscscan.com/tx/", tokens: []),
+                   defaultRPC: "https://bsc-testnet-rpc.publicnode.com", explorer: "https://testnet.bscscan.com/", tokens: []),
         EvmNetwork(name: "Ethereum 主网", chainId: 1, symbol: "ETH",
-                   defaultRPC: "https://ethereum-rpc.publicnode.com", explorer: "https://etherscan.io/tx/",
+                   defaultRPC: "https://ethereum-rpc.publicnode.com", explorer: "https://etherscan.io/",
                    tokens: [EvmToken(symbol: "USDT", contract: "0xdAC17F958D2ee523a2206206994597C13D831ec7", decimals: 6),
                             EvmToken(symbol: "USDC", contract: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", decimals: 6)]),
         EvmNetwork(name: "BNB Smart Chain 主网", chainId: 56, symbol: "BNB",
-                   defaultRPC: "https://bsc-rpc.publicnode.com", explorer: "https://bscscan.com/tx/",
+                   defaultRPC: "https://bsc-rpc.publicnode.com", explorer: "https://bscscan.com/",
                    tokens: [EvmToken(symbol: "USDT", contract: "0x55d398326f99059fF775485246999027B3197955", decimals: 18),
                             EvmToken(symbol: "USDC", contract: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", decimals: 18)]),
     ]
@@ -202,4 +206,18 @@ struct DisplayModel: Decodable {
     let title: String
     let rows: [Row]
     let warnings: [Warning]
+}
+
+/// 区块浏览器网址：只拼接固定前缀与全字母数字的地址或哈希，避免被构造的值改成别的站点
+enum Explorer {
+    static func url(_ prefix: String, _ item: String) -> URL? {
+        guard !item.isEmpty, item.unicodeScalars.allSatisfy({ $0.isASCII && CharacterSet.alphanumerics.contains($0) }) else {
+            return nil
+        }
+        return URL(string: prefix + item)
+    }
+
+    static func bitcoinAddress(_ address: String, testnet: Bool) -> URL? {
+        url(testnet ? "https://mempool.space/testnet4/address/" : "https://mempool.space/address/", address)
+    }
 }

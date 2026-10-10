@@ -53,7 +53,7 @@ fn pump(enc: *mut AwUrEncoder) -> *mut AwUrDecoder {
 #[test]
 fn selftest_and_abi() {
     assert_eq!(aw_selftest(), AW_OK);
-    assert_eq!(aw_abi_version(), 3);
+    assert_eq!(aw_abi_version(), 4);
 }
 
 #[test]
@@ -406,9 +406,13 @@ fn addresses_for_all_chains() {
         Ok(String::from_utf8(take(p, l)).unwrap())
     };
     // 与 tools/testvectors/chain_addresses.py（独立 Python 实现）一致
-    assert!(get(0, 0)
-        .unwrap()
-        .contains("tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl"));
+    let btc = get(0, 0).unwrap();
+    assert!(btc.contains("tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl"));
+    // 浏览器网址只用于显示；测试网用对应的测试网浏览器
+    assert!(btc.contains(
+        r#""url":"https://mempool.space/testnet4/address/tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl""#
+    ));
+    assert!(get(3, 0).unwrap().contains(r#""explorers":[]"#));
     assert!(get(1, 0)
         .unwrap()
         .contains("0x9858EfFD232B4033E47d90003D41EC34EcaEda94"));
@@ -440,4 +444,67 @@ fn addresses_for_all_chains() {
         AW_ERR_STATE
     );
     unsafe { aw_session_free(fresh) };
+}
+
+#[test]
+fn passphrase_with_expected_fingerprint() {
+    let fingerprint_with = |pass: &[u8]| {
+        let s = aw_session_new();
+        assert_eq!(
+            unsafe { aw_session_set_words(s, ABOUT.as_ptr(), 12) },
+            AW_OK
+        );
+        assert_eq!(
+            unsafe { aw_session_set_passphrase(s, pass.as_ptr(), pass.len()) },
+            AW_OK
+        );
+        assert_eq!(
+            unsafe { aw_session_unlock(s, 0, [7u8; 32].as_ptr()) },
+            AW_OK
+        );
+        let fp = unsafe { aw_session_fingerprint(s) };
+        unsafe { aw_session_free(s) };
+        fp
+    };
+    // 无 passphrase：公开的根指纹 73c5da0a；加 passphrase 是另一个钱包
+    assert_eq!(fingerprint_with(b""), 0x73c5_da0a);
+    let want = fingerprint_with(b"TREZOR");
+    assert_ne!(want, 0x73c5_da0a);
+
+    let s = aw_session_new();
+    assert_eq!(
+        unsafe { aw_session_set_words(s, ABOUT.as_ptr(), 12) },
+        AW_OK
+    );
+    assert_eq!(
+        unsafe { aw_session_expect_fingerprint(s, 2, want) },
+        AW_ERR_BAD_ARGUMENT
+    );
+    assert_eq!(unsafe { aw_session_expect_fingerprint(s, 1, want) }, AW_OK);
+    // 输错 passphrase：拒绝解锁，passphrase 清除，助记词保留
+    let wrong = b"TREZOr";
+    assert_eq!(
+        unsafe { aw_session_set_passphrase(s, wrong.as_ptr(), wrong.len()) },
+        AW_OK
+    );
+    assert_eq!(
+        unsafe { aw_session_unlock(s, 0, [7u8; 32].as_ptr()) },
+        AW_ERR_FINGERPRINT_MISMATCH
+    );
+    assert_eq!(unsafe { aw_session_word_count(s) }, 12);
+    assert_eq!(unsafe { aw_session_fingerprint(s) }, 0);
+    assert!(unsafe { &*s }.passphrase.is_none());
+    // 重输正确的 passphrase 即可解锁
+    let right = b"TREZOR";
+    assert_eq!(
+        unsafe { aw_session_set_passphrase(s, right.as_ptr(), right.len()) },
+        AW_OK
+    );
+    assert_eq!(
+        unsafe { aw_session_unlock(s, 0, [7u8; 32].as_ptr()) },
+        AW_OK
+    );
+    assert_eq!(unsafe { aw_session_fingerprint(s) }, want);
+    assert_eq!(unsafe { aw_session_word_count(s) }, 0);
+    unsafe { aw_session_free(s) };
 }

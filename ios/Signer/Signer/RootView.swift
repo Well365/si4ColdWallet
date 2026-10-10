@@ -26,8 +26,17 @@ struct RootView: View {
             case .setup:
                 SetupView { session in stage = .unlocked(session) }
             case .unlocked(let session):
-                NavigationStack {
-                    WalletView(session: session) { stage = .setup }
+                // 每一页顶部都显示当前是哪个钱包（排在导航栏上方，不与标题重叠）
+                VStack(spacing: 0) {
+                    Text(verbatim: "\(session.walletKind) · 指纹 \(session.fingerprint)")
+                        .font(.system(.caption, design: .monospaced))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 4)
+                        .background(session.usesPassphrase ? Color.indigo.opacity(0.15) : Color.gray.opacity(0.12))
+                        .accessibilityIdentifier("wallet-badge")
+                    NavigationStack {
+                        WalletView(session: session) { stage = .setup }
+                    }
                 }
             }
         }

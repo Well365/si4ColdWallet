@@ -29,6 +29,7 @@ extern "C" {
 #define AW_ERR_RNG_HEALTH      -12   /* 系统随机数没有通过健康检查 */
 #define AW_ERR_DICE_TOO_FEW    -13   /* 纯骰子模式：12 词至少 50 次，24 词至少 100 次 */
 #define AW_ERR_DICE_POOR       -14   /* 纯骰子模式：点数分布不像真实掷骰（某面过多、长串相同、有周期） */
+#define AW_ERR_FINGERPRINT_MISMATCH -15  /* 解锁得到的指纹与预期不符（多半是 passphrase 输错）；助记词保留，可重输 */
 #define AW_ERR_UR              -20
 #define AW_ERR_UR_OTHER_SET    -21
 #define AW_ERR_UR_TYPE         -22
@@ -62,10 +63,14 @@ int32_t  aw_session_set_words(AwSession *s, const uint16_t *idx, size_t n);
 size_t   aw_session_word_count(const AwSession *s);
 int32_t  aw_session_word_at(const AwSession *s, size_t i);
 int32_t  aw_session_set_passphrase(AwSession *s, const uint8_t *p, size_t len);
-/* 解锁成功后会话中的助记词与 passphrase 立即清除（word_count 变为 0） */
+/* 解锁时核对的预期指纹（大端 u32）；has = 0 表示不核对 */
+int32_t  aw_session_expect_fingerprint(AwSession *s, uint8_t has, uint32_t fp);
+/* 解锁成功后会话中的助记词与 passphrase 立即清除（word_count 变为 0）。
+ * 设置了预期指纹而结果不符时返回 AW_ERR_FINGERPRINT_MISMATCH：清除 passphrase，保留助记词。 */
 int32_t  aw_session_unlock(AwSession *s, uint8_t testnet, const uint8_t *rand32);
 uint32_t aw_session_fingerprint(const AwSession *s);
-/* 第 index 个收款地址，JSON：{chain, path, address, note}。
+/* 第 index 个收款地址，JSON：{chain, path, address, note, explorers:[{name, url}]}。
+ * explorers 只用于显示（签名机不联网，网址由用户在别的设备上输入）。
  * chain：0 BTC、1 EVM（ETH/BNB…）、2 SOL、3 DOGE、4 TRON、5 NEAR；SOL / NEAR 的 index < 20 */
 int32_t  aw_session_address(const AwSession *s, uint32_t chain, uint32_t index, uint8_t **out_json, size_t *out_len);
 /* chain：0 = BTC（BIP84），1 = EVM（m/44'/60'/0'） */

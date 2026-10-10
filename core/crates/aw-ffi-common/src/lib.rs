@@ -20,6 +20,8 @@ pub const AW_ERR_RNG_HEALTH: i32 = -12;
 pub const AW_ERR_DICE_TOO_FEW: i32 = -13;
 /// 纯骰子模式下点数分布不像真实掷骰
 pub const AW_ERR_DICE_POOR: i32 = -14;
+/// 解锁得到的钱包指纹与用户填写的预期指纹不一致（多半是 passphrase 输错）
+pub const AW_ERR_FINGERPRINT_MISMATCH: i32 = -15;
 pub const AW_ERR_UR: i32 = -20;
 pub const AW_ERR_UR_OTHER_SET: i32 = -21;
 pub const AW_ERR_UR_TYPE: i32 = -22;

@@ -13,8 +13,16 @@ struct SetupView: View {
     @State private var path: [Route] = []
     @State private var hasWords = false
     @State private var testnet = true
+    @State private var mode = WalletMode.standard
     @State private var passphrase = ""
+    @State private var passphraseAgain = ""
+    @State private var expectedFingerprint = ""
     @State private var error: String?
+
+    enum WalletMode: Hashable {
+        case standard
+        case passphrase
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -50,17 +58,30 @@ struct SetupView: View {
             }
             if hasWords {
                 Section {
-                    SecureField("passphrase（可选，永不保存）", text: $passphrase)
+                    Picker("钱包类型", selection: $mode) {
+                        Text("标准钱包").tag(WalletMode.standard)
+                        Text("passphrase 钱包").tag(WalletMode.passphrase)
+                    }
+                    .pickerStyle(.segmented)
+                    if mode == .passphrase { passphraseFields }
+                    TextField("预期指纹（可选，8 位十六进制）", text: $expectedFingerprint)
+                        .font(.system(.body, design: .monospaced))
+                        .keyboardType(.asciiCapable)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                    if fingerprint == .invalid {
+                        Text("指纹应为 8 位十六进制，例如 73c5da0a").font(.footnote).foregroundStyle(.red)
+                    }
                     Toggle("测试网（建议先用测试网熟悉流程）", isOn: $testnet)
                 } header: {
                     Text("2. 解锁")
                 } footer: {
-                    Text("passphrase 写错会得到另一个钱包，请核对解锁后显示的指纹。")
+                    Text(mode == .passphrase
+                         ? "passphrase 相当于第 25 个单词：输错不会报错，而是进入另一个钱包。第一次使用时请记下解锁后显示的指纹，以后填进“预期指纹”，不一致就不会进入。passphrase 永不保存，忘了就无法找回这个钱包里的资产。"
+                         : "填写预期指纹可以确认恢复出来的是同一个钱包。")
                 }
                 Section {
-                    Button("解锁") { unlock() }.bold()
+                    Button("解锁") { unlock() }.bold().disabled(!canUnlock)
                 }
             }
             if let error {
@@ -70,10 +91,41 @@ struct SetupView: View {
         .navigationTitle("AW Signer · 离线签名机")
     }
 
+    @ViewBuilder private var passphraseFields: some View {
+        SecureField("passphrase（永不保存）", text: $passphrase)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+        SecureField("再输入一次", text: $passphraseAgain)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+        if !passphraseAgain.isEmpty && passphrase != passphraseAgain {
+            Text("两次输入不一致").font(.footnote).foregroundStyle(.red)
+        }
+        ForEach(PassphraseCheck.cautions(passphrase), id: \.self) { c in
+            Label(c, systemImage: "exclamationmark.triangle").font(.footnote).foregroundStyle(.orange)
+        }
+    }
+
+    private var fingerprint: PassphraseCheck.Fingerprint {
+        PassphraseCheck.fingerprint(expectedFingerprint)
+    }
+
+    private var canUnlock: Bool {
+        guard fingerprint != .invalid else { return false }
+        if mode == .standard { return true }
+        return !passphrase.isEmpty && passphrase == passphraseAgain
+    }
+
     private func unlock() {
         do {
-            try session.setPassphrase(passphrase)
+            if case .value(let fp) = fingerprint {
+                try session.expectFingerprint(fp)
+            } else {
+                try session.expectFingerprint(nil)
+            }
+            try session.setPassphrase(mode == .passphrase ? passphrase : "")
             passphrase = ""
+            passphraseAgain = ""
             try session.unlock(testnet: testnet)
             onUnlocked(session)
         } catch let f as AWCore.Failure {

@@ -98,6 +98,11 @@ struct EvmAccountView: View {
             }
             Section("收款地址 #0") {
                 Text(account.address(index: 0)).font(.system(.footnote, design: .monospaced)).textSelection(.enabled)
+                if let u = network.addressURL(account.address(index: 0)) {
+                    Link("在区块浏览器查看（\(network.name)）", destination: u)
+                    Text(verbatim: u.absoluteString).font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.secondary).textSelection(.enabled)
+                }
             }
             Section("余额（\(network.name)）") {
                 LabeledContent(network.symbol, value: balances[""] ?? "—")
@@ -232,7 +237,7 @@ struct EvmSignedView: View {
                 ScrollView { Text(raw).font(.system(.caption2, design: .monospaced)).textSelection(.enabled) }.frame(maxHeight: 160)
                 if let txHash {
                     Text("已广播：\(txHash)").font(.system(.footnote, design: .monospaced)).textSelection(.enabled)
-                    if let u = URL(string: network.explorer + txHash) { Link("在区块浏览器查看", destination: u) }
+                    if let u = network.txURL(txHash) { Link("在区块浏览器查看", destination: u) }
                 } else {
                     Button("广播") { Task { await broadcast(raw) } }.buttonStyle(.borderedProminent)
                 }

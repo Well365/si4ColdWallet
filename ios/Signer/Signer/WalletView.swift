@@ -8,11 +8,14 @@ struct WalletView: View {
     var body: some View {
         List {
             Section {
+                LabeledContent("钱包类型", value: session.walletKind)
                 LabeledContent("钱包指纹", value: session.fingerprint)
                     .font(.system(.body, design: .monospaced))
                     .accessibilityIdentifier("fingerprint")
             } footer: {
-                Text("观察机导入账户后会显示同一个指纹，请核对。")
+                Text(session.usesPassphrase
+                     ? "这是 passphrase 钱包：请记下指纹，下次解锁时填进“预期指纹”核对。观察机导入账户后也会显示同一个指纹。"
+                     : "观察机导入账户后会显示同一个指纹，请核对。")
             }
             Section {
                 NavigationLink("各链收款地址（BTC、ETH/BNB、SOL、DOGE、TRON、NEAR）") { AddressesView(session: session) }
@@ -228,6 +231,7 @@ struct AddressesView: View {
                     Text(ReviewView.grouped(info.address)).font(.system(.callout, design: .monospaced))
                     LabeledContent("路径", value: info.path).font(.footnote)
                     Text(info.note).font(.footnote).foregroundStyle(.secondary)
+                    explorers(info.explorers)
                 }
             }
             if let error { Section { Text(error).foregroundStyle(.red) } }
@@ -238,6 +242,21 @@ struct AddressesView: View {
         .navigationTitle("收款地址")
         .onChange(of: chain) { _, c in if index > c.maxIndex { index = 0 } }
         .task(id: "\(chain.rawValue)-\(index)") { load() }
+    }
+
+    /// 只显示网址文字（verbatim：不解析成链接，不能点击）；签名机不联网
+    @ViewBuilder private func explorers(_ list: [ExplorerLink]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("区块浏览器（只显示，请在联网设备的浏览器里输入；签名机不联网）")
+                .font(.footnote).foregroundStyle(.secondary)
+            if list.isEmpty {
+                Text("这个网络没有常用的公共区块浏览器").font(.footnote)
+            }
+            ForEach(list) { e in
+                Text(verbatim: e.name).font(.caption).bold()
+                Text(verbatim: e.url).font(.system(.caption, design: .monospaced))
+            }
+        }
     }
 
     private func load() {

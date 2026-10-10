@@ -5,7 +5,7 @@ import Security
 /// Rust 核心的 Swift 薄封装。所有对 C 接口的调用都集中在这里。
 /// 秘密只存在于 Rust 会话中；Swift 只传单词序号，passphrase 由 SecureField 输入后立即交给 Rust。
 enum AWCore {
-    static let expectedABI: UInt32 = 3
+    static let expectedABI: UInt32 = 4
 
     enum Failure: Error, Equatable {
         case abiMismatch(found: UInt32)
@@ -86,6 +86,7 @@ enum AWCore {
         case AW_ERR_UNSUPPORTED_REQUEST: return "这不是签名请求二维码（例如是账户公钥），请扫描观察机上的待签请求"
         case AW_ERR_NEEDS_CONFIRMATION: return "这笔请求含高风险警告，请先勾选确认"
         case AW_ERR_BAD_MNEMONIC: return "助记词无效（校验和不符）"
+        case AW_ERR_FINGERPRINT_MISMATCH: return "解锁得到的钱包指纹与你填写的预期指纹不一致，多半是 passphrase 输错了。助记词已保留，请重新输入 passphrase"
         case AW_ERR_RNG_HEALTH: return "系统随机数没有通过健康检查（可能是设备故障或被篡改），已停止生成。请改用\"纯骰子\"模式"
         case AW_ERR_DICE_TOO_FEW: return "骰子次数不够：12 词至少 50 次，24 词至少 100 次"
         case AW_ERR_DICE_POOR: return "骰子点数看起来不像真实掷出的（某一面过多、长串相同或有规律），请用真实骰子重新掷"
@@ -145,6 +146,17 @@ final class SignerSession {
         defer { bytes.withUnsafeMutableBufferPointer { $0.update(repeating: 0) } }
         let rc = bytes.withUnsafeBufferPointer { aw_session_set_passphrase(raw, $0.baseAddress, $0.count) }
         try AWCore.check(rc)
+        usesPassphrase = !bytes.isEmpty
+    }
+
+    /// 是否用 passphrase 解锁（只用于界面显示钱包类型）
+    private(set) var usesPassphrase = false
+
+    var walletKind: String { usesPassphrase ? "passphrase 钱包" : "标准钱包" }
+
+    /// 解锁时核对的预期指纹；nil 表示不核对。不符时 Rust 拒绝解锁并保留助记词。
+    func expectFingerprint(_ fp: UInt32?) throws {
+        try AWCore.check(aw_session_expect_fingerprint(raw, fp == nil ? 0 : 1, fp ?? 0))
     }
 
     func unlock(testnet: Bool) throws {
@@ -240,6 +252,41 @@ struct AddressInfo: Decodable {
     let path: String
     let address: String
     let note: String
+    /// 只用于显示：签名机不联网，网址由用户在别的设备上输入
+    let explorers: [ExplorerLink]
+}
+
+struct ExplorerLink: Decodable, Identifiable {
+    let name: String
+    let url: String
+    var id: String { url }
+}
+
+/// passphrase 输入的检查（只给提醒，不替用户做决定）
+enum PassphraseCheck {
+    static func cautions(_ p: String) -> [String] {
+        var out: [String] = []
+        if p.unicodeScalars.contains(where: { !$0.isASCII }) {
+            out.append("含中文、全角或其他非 ASCII 字符：换设备或换输入法时，可能输不出完全相同的字符")
+        }
+        if p.first?.isWhitespace == true || p.last?.isWhitespace == true {
+            out.append("首尾有空格：下次输入时很容易漏掉")
+        }
+        if !p.isEmpty && p.count < 8 {
+            out.append("少于 8 个字符：如果助记词泄露，短 passphrase 可以被暴力猜出")
+        }
+        return out
+    }
+
+    /// "73c5da0a" → 0x73c5da0a；允许空格与大写；空串返回 .none，格式错误返回 .invalid
+    enum Fingerprint: Equatable { case none, invalid, value(UInt32) }
+
+    static func fingerprint(_ text: String) -> Fingerprint {
+        let t = text.filter { !$0.isWhitespace }.lowercased()
+        if t.isEmpty { return .none }
+        guard t.count == 8, t.allSatisfy(\.isHexDigit), let v = UInt32(t, radix: 16) else { return .invalid }
+        return .value(v)
+    }
 }
 
 /// 签名机可以导出的账户（与 aw_session_export_account 的 chain 参数一致）

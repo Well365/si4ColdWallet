@@ -12,7 +12,7 @@ static int failures = 0;
 #define CHECK(cond, msg) do { if (!(cond)) { printf("FAIL: %s\n", msg); failures++; } else { printf("ok:   %s\n", msg); } } while (0)
 
 int main(void) {
-    CHECK(aw_abi_version() == 3, "abi_version == 3");
+    CHECK(aw_abi_version() == 4, "abi_version == 4");
     CHECK(aw_selftest() == AW_OK, "selftest");
 
     size_t wl = 0;
@@ -26,6 +26,11 @@ int main(void) {
     CHECK(aw_session_set_words(s, words, 12) == AW_OK, "set words");
     CHECK(aw_session_word_count(s) == 12 && aw_session_word_at(s, 11) == 3, "word access");
     const uint8_t rand32[32] = {0x11};
+    /* 预期指纹 + 错误 passphrase：拒绝解锁且保留助记词；改回正确（空）passphrase 后解锁成功 */
+    CHECK(aw_session_expect_fingerprint(s, 1, 0x73c5da0a) == AW_OK, "expect fingerprint");
+    CHECK(aw_session_set_passphrase(s, (const uint8_t *)"typo", 4) == AW_OK, "wrong passphrase");
+    CHECK(aw_session_unlock(s, 1, rand32) == AW_ERR_FINGERPRINT_MISMATCH, "fingerprint mismatch rejected");
+    CHECK(aw_session_word_count(s) == 12, "words kept after mismatch");
     CHECK(aw_session_set_passphrase(s, (const uint8_t *)"", 0) == AW_OK, "passphrase");
     CHECK(aw_session_unlock(s, 1, rand32) == AW_OK, "unlock testnet");
     CHECK(aw_session_fingerprint(s) == 0x73c5da0a, "master fingerprint 73c5da0a");

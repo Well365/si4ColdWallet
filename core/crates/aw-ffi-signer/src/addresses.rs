@@ -4,6 +4,7 @@
 //! Solana、NEAR 的 Ed25519 路径全部强化、不能由公钥继续派生，所以解锁时预先算好前 20 个账户的公钥，
 //! 派生用的私钥随即清零（交易签名在 P2c / P2d 实现时再按需派生）。
 
+use aw_common::explorer::{self, Chain};
 use aw_common::json::Json;
 use aw_common::secret::SecretBytes;
 use aw_keys::slip10::Ed25519Node;
@@ -84,7 +85,7 @@ impl Addresses {
         index: u32,
     ) -> Option<Json> {
         let ed = |list: &Vec<[u8; 32]>| list.get(usize::try_from(index).ok()?).copied();
-        let (name, path, address, note) = match chain {
+        let (name, path, address, note, kind) = match chain {
             CHAIN_BTC => (
                 if self.testnet {
                     "Bitcoin 测试网"
@@ -95,18 +96,21 @@ impl Addresses {
                 format!("m/84'/{}'/0'/0/{index}", u32::from(self.testnet)),
                 btc.address(secp, false, index).ok()?.to_string(),
                 "原生隔离见证（bc1 / tb1 开头）".to_owned(),
+                Chain::Btc,
             ),
             CHAIN_EVM => (
                 "以太坊 / BNB Smart Chain 等 EVM 链".to_owned(),
                 format!("m/44'/60'/0'/0/{index}"),
                 aw_chain_evm::checksum_address(&evm.address(secp, index).ok()?),
                 "所有 EVM 链共用同一个地址".to_owned(),
+                Chain::Evm,
             ),
             CHAIN_SOL => (
                 "Solana".to_owned(),
                 aw_chain_sol::path_string(index),
                 aw_chain_sol::address(&ed(&self.sol)?),
                 "与 Phantom、Solflare 默认路径一致".to_owned(),
+                Chain::Sol,
             ),
             CHAIN_DOGE => (
                 if self.testnet {
@@ -118,12 +122,14 @@ impl Addresses {
                 aw_chain_btc::doge::path_string(self.testnet, index),
                 aw_chain_btc::doge::address(&self.child(&self.doge, secp, index)?, self.testnet),
                 "P2PKH（D 开头；测试网 n 开头）".to_owned(),
+                Chain::Doge,
             ),
             CHAIN_TRON => (
                 "TRON".to_owned(),
                 aw_chain_tron::path_string(index),
                 aw_chain_tron::address(&self.child(&self.tron, secp, index)?),
                 "与 TronLink 默认路径一致".to_owned(),
+                Chain::Tron,
             ),
             CHAIN_NEAR => {
                 let pk = ed(&self.near)?;
@@ -132,6 +138,7 @@ impl Addresses {
                     aw_chain_near::path_string(index),
                     aw_chain_near::implicit_account(&pk),
                     format!("隐式账户；公钥 {}", aw_chain_near::public_key_text(&pk)),
+                    Chain::Near,
                 )
             }
             _ => return None,
@@ -139,8 +146,13 @@ impl Addresses {
         Some(Json::obj(vec![
             ("chain", Json::str(name)),
             ("path", Json::str(path)),
-            ("address", Json::str(address)),
+            ("address", Json::str(address.as_str())),
             ("note", Json::str(note)),
+            // 只用于显示：签名机不联网，网址由用户在别的设备上输入
+            (
+                "explorers",
+                explorer::to_json(&explorer::address_urls(kind, self.testnet, &address)),
+            ),
         ]))
     }
 }

@@ -21,9 +21,9 @@ use aw_common::secret::{scrub_stack, SecretBytes, SecretVec};
 use aw_ffi_common::{
     clear_out, decoded_ur, hand_out, input, new_encoder, AwUrDecoder, AwUrEncoder,
     AW_ERR_BAD_ARGUMENT, AW_ERR_BAD_MNEMONIC, AW_ERR_DERIVATION, AW_ERR_DICE_POOR,
-    AW_ERR_DICE_TOO_FEW, AW_ERR_EVM_REJECT_BASE, AW_ERR_NEEDS_CONFIRMATION, AW_ERR_NULL_POINTER,
-    AW_ERR_RNG_HEALTH, AW_ERR_SELFTEST, AW_ERR_STATE, AW_ERR_TX_REJECT_BASE,
-    AW_ERR_UNSUPPORTED_REQUEST, AW_OK,
+    AW_ERR_DICE_TOO_FEW, AW_ERR_EVM_REJECT_BASE, AW_ERR_FINGERPRINT_MISMATCH,
+    AW_ERR_NEEDS_CONFIRMATION, AW_ERR_NULL_POINTER, AW_ERR_RNG_HEALTH, AW_ERR_SELFTEST,
+    AW_ERR_STATE, AW_ERR_TX_REJECT_BASE, AW_ERR_UNSUPPORTED_REQUEST, AW_OK,
 };
 use aw_ur::registry::{decode_psbt, encode_hdkey, encode_psbt, Style};
 use aw_ur::ur::Ur;
@@ -32,7 +32,7 @@ use bitcoin::Network;
 
 aw_ffi_common::define_common_ffi!();
 
-pub const AW_ABI_VERSION: u32 = 3;
+pub const AW_ABI_VERSION: u32 = 4;
 const MAX_PASSPHRASE: usize = 1024;
 const MAX_DICE: usize = 1024;
 const MAX_PSBT: usize = 512 * 1024;
@@ -86,6 +86,8 @@ pub struct AwSession {
     secp: Option<Secp256k1<All>>,
     /// 上一次系统随机数的哈希（检测随机数源卡住，不保存原值）
     last_system: Option<[u8; 32]>,
+    /// 解锁时要核对的预期指纹（passphrase 输错会静默得到另一个钱包）
+    expected_fingerprint: Option<u32>,
 }
 
 #[no_mangle]
@@ -98,6 +100,7 @@ pub extern "C" fn aw_session_new() -> *mut AwSession {
         addresses: None,
         secp: None,
         last_system: None,
+        expected_fingerprint: None,
     }))
 }
 
@@ -285,6 +288,25 @@ pub unsafe extern "C" fn aw_session_set_passphrase(
     status(r)
 }
 
+/// 设置解锁时核对的预期指纹（大端 u32）。`has` 为 0 表示不核对。
+///
+/// # Safety
+/// `s` 为有效会话。
+#[no_mangle]
+pub unsafe extern "C" fn aw_session_expect_fingerprint(s: *mut AwSession, has: u8, fp: u32) -> i32 {
+    let r = (|| -> Result<(), i32> {
+        // SAFETY: 调用方保证。
+        let sess = unsafe { session(s) }?;
+        sess.expected_fingerprint = match has {
+            0 => None,
+            1 => Some(fp),
+            _ => return Err(AW_ERR_BAD_ARGUMENT),
+        };
+        Ok(())
+    })();
+    status(r)
+}
+
 /// 解锁：由助记词 + passphrase 派生 BIP84 账户（种子用完即清零）。
 ///
 /// # Safety
@@ -317,6 +339,13 @@ pub unsafe extern "C" fn aw_session_unlock(
         m.to_seed_into(pass, &mut seed)
             .map_err(|_| AW_ERR_BAD_MNEMONIC)?;
         let master = aw_keys::master(&seed, network).map_err(|_| AW_ERR_DERIVATION)?;
+        let fp = u32::from_be_bytes(aw_keys::master_fingerprint(&secp, &master).to_bytes());
+        if sess.expected_fingerprint.is_some_and(|want| want != fp) {
+            // 指纹不符：多半是 passphrase 输错。清除 passphrase、保留助记词，让用户重输；
+            // 种子与根私钥在离开作用域时清零
+            sess.passphrase = None;
+            return Err(AW_ERR_FINGERPRINT_MISMATCH);
+        }
         let addrs = addresses::Addresses::derive(&secp, &master, &seed, testnet == 1)
             .ok_or(AW_ERR_DERIVATION)?;
         drop(seed);

@@ -34,6 +34,11 @@ struct AccountView: View {
                 }
                 Text(addr).font(.system(.footnote, design: .monospaced)).textSelection(.enabled)
                     .accessibilityIdentifier("receive-address")
+                if let u = Explorer.bitcoinAddress(addr, testnet: account.isTestnet) {
+                    Link("在区块浏览器查看（mempool.space）", destination: u)
+                    Text(verbatim: u.absoluteString).font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.secondary).textSelection(.enabled)
+                }
                 Button("下一个地址") { receiveIndex += 1 }
             }
             Section {
