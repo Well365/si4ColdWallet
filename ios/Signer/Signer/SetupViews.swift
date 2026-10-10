@@ -188,7 +188,7 @@ struct GenerateView: View {
             } footer: {
                 Text(mode == .mixed && dice.count < required
                      ? "请用真实的骰子，每次按实际点数输入。当前骰子不足 \(required) 次：安全性主要依赖系统随机数。"
-                     : "请用真实的骰子，每次按实际点数输入，不要自己编数字（乱按或有规律的点数会被拒绝）。")
+                     : "请用真实的骰子，每次按实际点数输入，不要自己编数字。签名机只能拦下明显的规律（重复、偏向、周期），不能证明点数是真掷出来的。")
             }
             Section {
                 Button("生成") { generate() }.bold().disabled(!ready)
@@ -246,7 +246,7 @@ struct BackupView: View {
                 ForEach(Array(session.wordIndices.enumerated()), id: \.offset) { i, idx in
                     HStack {
                         Text("\(i + 1).").monospacedDigit().foregroundStyle(.secondary).frame(width: 36, alignment: .trailing)
-                        Text(AWCore.words[idx]).font(.system(.body, design: .monospaced))
+                        SecureText(text: AWCore.words[idx]).frame(height: 22)
                     }
                 }
             }

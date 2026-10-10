@@ -114,11 +114,17 @@ pub fn mixed(
     Ok(take(sha256::Hash::from_engine(e).to_byte_array(), bytes))
 }
 
+/// 近似周期检查的最大间隔
+const MAX_PERIOD_GAP: usize = 60;
+
 /// 纯骰子模式下检查点数"像不像真掷的"（随机数审查 M1：同一个按钮按 100 次也能通过次数检查）。
 /// 三项检查对真实骰子的误报概率都约在 1e-5 或更低：
 /// - 卡方检验（5 个自由度）> 35.9（p ≈ 1e-6）：某几面明显过多或过少
 /// - 连续 10 个以上相同点数
 /// - 整串以 ≤ 12 为周期重复（如 123456123456…）
+/// - 近似周期：任一间隔 ≤ 60 上"前后相同"的次数比期望多 6 个标准差以上（改动几位的循环、周期 13/14 等）
+///
+/// 这些检查只能拦下明显的规律，不能证明点数真随机（例如照抄圆周率的数字就拦不住）。
 pub fn dice_quality(dice: &[u8]) -> Result<(), EntropyError> {
     let n = dice.len();
     let mut counts = [0usize; 6];
@@ -147,6 +153,21 @@ pub fn dice_quality(dice: &[u8]) -> Result<(), EntropyError> {
     }
     for p in 1..=12usize.min(n.saturating_sub(1)) {
         if dice.iter().zip(dice.iter().skip(p)).all(|(a, b)| a == b) {
+            return Err(EntropyError::PoorDice);
+        }
+    }
+    // 近似周期（审计 P1-8）：对每个间隔 p，"第 i 个与第 i+p 个相同"的次数 m 在真随机下约为 N/6（N = n − p），
+    // 标准差 √(5N)/6。m 超过期望 6 个标准差即拒绝：(6m − N)² > 180N 且 6m > N。
+    // 每个间隔的误报约 1e-9，最多 60 个间隔合计约 1e-7 量级
+    for p in 1..=MAX_PERIOD_GAP.min(n / 2) {
+        let pairs = n - p;
+        let m = dice
+            .iter()
+            .zip(dice.iter().skip(p))
+            .filter(|(a, b)| a == b)
+            .count();
+        let excess = (6 * m).saturating_sub(pairs) as u128;
+        if excess * excess > 180 * pairs as u128 {
             return Err(EntropyError::PoorDice);
         }
     }
@@ -259,5 +280,48 @@ pub(crate) mod tests {
         }
         assert_eq!(dice_quality(DICE_100), Ok(()));
         assert_eq!(dice_quality(DICE_50), Ok(()));
+    }
+
+    /// 审计 P1-8：近似周期（改动几位的循环、周期 13/14）也要拦下；真随机点数不误报
+    #[test]
+    fn near_periodic_dice_rejected_and_random_dice_pass() {
+        let mut cyc = b"123456"
+            .iter()
+            .copied()
+            .cycle()
+            .take(100)
+            .collect::<Vec<_>>();
+        cyc[17] = b'6';
+        cyc[58] = b'2';
+        let p13: Vec<u8> = b"1625344352615".iter().copied().cycle().take(100).collect();
+        let p14: Vec<u8> = b"62513443526116".iter().copied().cycle().take(99).collect();
+        for bad in [&cyc, &p13, &p14] {
+            assert_eq!(
+                dice_quality(bad),
+                Err(EntropyError::PoorDice),
+                "{:?}",
+                core::str::from_utf8(bad)
+            );
+        }
+        // 用 SHA-256 计数器流按拒绝采样生成 2000 组真随机点数：一组都不能误报
+        let mut ctr = 0u64;
+        let mut roll = || loop {
+            let h = sha256::Hash::hash(&ctr.to_be_bytes()).to_byte_array();
+            ctr += 1;
+            if let Some(b) = h.iter().copied().find(|&b| b < 252) {
+                return b'1' + b % 6;
+            }
+        };
+        for len in [50usize, 99, 200] {
+            for _ in 0..(2000 / 3) {
+                let d: Vec<u8> = (0..len).map(|_| roll()).collect();
+                assert_eq!(
+                    dice_quality(&d),
+                    Ok(()),
+                    "{}",
+                    core::str::from_utf8(&d).unwrap()
+                );
+            }
+        }
     }
 }

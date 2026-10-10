@@ -14,6 +14,8 @@ pub enum Style {
     Address,
     /// 金额：醒目显示
     Amount,
+    /// 手续费：与金额区分的样式（审计 P1-11：gas 不能被看成转账金额）
+    Fee,
     /// 原始数据（十六进制等）：等宽、可折叠
     Data,
 }
@@ -122,6 +124,7 @@ fn style_name(s: Style) -> &'static str {
         Style::Text => "text",
         Style::Address => "address",
         Style::Amount => "amount",
+        Style::Fee => "fee",
         Style::Data => "data",
     }
 }

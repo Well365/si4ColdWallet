@@ -174,6 +174,8 @@ struct ReviewView: View {
         switch r.style {
         case "address": Text(grouped(r.value)).font(.system(.callout, design: .monospaced)).textSelection(.disabled)
         case "amount": Text(r.value).bold()
+        // 手续费与金额用不同样式（审计 P1-11），避免把 gas 看成转账金额
+        case "fee": Label(r.value, systemImage: "fuelpump").foregroundStyle(.orange)
         // 不截断：被签名的内容必须完整可见（Rust 侧已限制长度并按行切分）
         case "data": Text(r.value).font(.system(.caption, design: .monospaced))
         default: Text(r.value)

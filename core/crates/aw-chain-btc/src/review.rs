@@ -44,6 +44,9 @@ pub const HIGH_FEE_RATIO_DIVISOR: u64 = 20;
 /// 手续费绝对值上限：超过即高风险，与比例无关（docs/01 T5 "绝对值异常"）
 pub const HIGH_FEE_ABSOLUTE_SAT: u64 = 100_000;
 
+/// 本钱包地址序号的常用范围：超过就强警告（钱包按 gap limit 扫描可能永远找不到这笔钱，审计 P1-9）
+pub const MAX_USUAL_INDEX: u32 = 100;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Warning {
     /// 手续费率超过 500 sat/vB
@@ -58,6 +61,10 @@ pub enum Warning {
     SelfTransferOnly,
     /// 设置了非零 locktime
     Locktime,
+    /// 找零或转给自己的地址序号超过 MAX_USUAL_INDEX
+    FarIndex,
+    /// 有两个以上对外收款地址（找零可能被改走，审计 P1-9）
+    MultipleExternal,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -256,6 +263,20 @@ pub fn review<C: Verification>(
     if locktime != 0 {
         warnings.push(Warning::Locktime);
     }
+    if outputs.iter().any(|o| match o.kind {
+        OutputKind::Change(i) | OutputKind::SelfReceive(i) => i > MAX_USUAL_INDEX,
+        OutputKind::External => false,
+    }) {
+        warnings.push(Warning::FarIndex);
+    }
+    if outputs
+        .iter()
+        .filter(|o| o.kind == OutputKind::External)
+        .count()
+        >= 2
+    {
+        warnings.push(Warning::MultipleExternal);
+    }
     Ok(Review {
         network: account.network,
         inputs,
@@ -319,7 +340,7 @@ impl Review {
         d.row(
             "手续费",
             format!("{}（约 {rate} sat/vB）", btc(self.fee)),
-            Style::Amount,
+            Style::Fee,
         );
         if self.locktime != 0 {
             d.row("锁定时间", self.locktime.to_string(), Style::Text);
@@ -349,6 +370,14 @@ impl Review {
                 Warning::Locktime => {
                     d.warn(Level::Caution, "设置了锁定时间：在指定时间之前交易无法上链")
                 }
+                Warning::FarIndex => d.warn(
+                    Level::Danger,
+                    format!("找零或自己的地址序号超过 {MAX_USUAL_INDEX}：钱包按常规扫描可能找不到这笔钱（找零可能被故意放到很远的序号）"),
+                ),
+                Warning::MultipleExternal => d.warn(
+                    Level::Danger,
+                    "有多个对外收款地址：如果你只付给一个人，多出来的那个可能是被改走的找零，请逐个核对",
+                ),
             }
         }
         d
@@ -383,6 +412,8 @@ impl Review {
                     Warning::DustOutput => "dust_output",
                     Warning::SelfTransferOnly => "self_transfer_only",
                     Warning::Locktime => "locktime",
+                    Warning::FarIndex => "far_index",
+                    Warning::MultipleExternal => "multiple_external",
                 })
             })
             .collect();

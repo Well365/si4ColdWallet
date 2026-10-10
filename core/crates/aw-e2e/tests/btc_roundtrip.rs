@@ -533,3 +533,82 @@ fn low_fee_self_transfer_is_not_flagged() {
         r.warnings
     );
 }
+
+/// 审计 P1-9：找零序号远超常用范围（钱包扫描找不到）要强警告
+#[test]
+fn far_change_index_is_flagged() {
+    let secp = Secp256k1::new();
+    let signer = signer(&secp);
+    let watch = signer.account.clone();
+    let funding = funding_tx(&watch, &secp);
+    let utxos = vec![Utxo {
+        prev_tx: funding,
+        vout: 0,
+        change: false,
+        index: 0,
+    }];
+    let to = Address::from_script(
+        &watch.script_for(&secp, false, 5).unwrap(),
+        Network::Testnet,
+    )
+    .unwrap();
+    let (psbt, _) = build_payment(&secp, &watch, &utxos, &to, 10_000, 2, 2_147_483_647).unwrap();
+    let r = review(&secp, &signer.account, &psbt).unwrap();
+    assert!(r.warnings.contains(&Warning::FarIndex), "{:?}", r.warnings);
+    assert!(r.to_display().has_danger());
+    let (psbt, _) = build_payment(&secp, &watch, &utxos, &to, 10_000, 2, 3).unwrap();
+    assert!(!review(&secp, &signer.account, &psbt)
+        .unwrap()
+        .warnings
+        .contains(&Warning::FarIndex));
+}
+
+/// 审计 P1-9：找零被改走（换成外部地址并删掉派生信息）后会多出一个"对外付款"——多个对外收款地址要强警告
+#[test]
+fn redirected_change_shows_as_multiple_external_outputs() {
+    let secp = Secp256k1::new();
+    let signer = signer(&secp);
+    let watch = signer.account.clone();
+    let funding = funding_tx(&watch, &secp);
+    let utxos = vec![Utxo {
+        prev_tx: funding,
+        vout: 0,
+        change: false,
+        index: 0,
+    }];
+    let to = Address::from_str_checked(RECIPIENT, Network::Testnet);
+    let (mut psbt, _) = build_payment(&secp, &watch, &utxos, &to, 10_000, 2, 0).unwrap();
+    let r = review(&secp, &signer.account, &psbt).unwrap();
+    assert!(
+        !r.warnings.contains(&Warning::MultipleExternal),
+        "{:?}",
+        r.warnings
+    );
+    psbt.unsigned_tx.output[1].script_pubkey = to.script_pubkey();
+    psbt.outputs[1].bip32_derivation.clear();
+    let r = review(&secp, &signer.account, &psbt).unwrap();
+    assert!(
+        r.warnings.contains(&Warning::MultipleExternal),
+        "{:?}",
+        r.warnings
+    );
+    assert!(r.to_display().has_danger());
+}
+
+/// 审计 P1-10：观察机构造付款用检查算术：极端费率返回错误而不是溢出崩溃
+#[test]
+fn absurd_fee_rate_in_builder_is_an_error_not_a_panic() {
+    let secp = Secp256k1::new();
+    let signer = signer(&secp);
+    let watch = signer.account.clone();
+    let funding = funding_tx(&watch, &secp);
+    let utxos = vec![Utxo {
+        prev_tx: funding,
+        vout: 0,
+        change: false,
+        index: 0,
+    }];
+    let to = Address::from_str_checked(RECIPIENT, Network::Testnet);
+    assert!(build_payment(&secp, &watch, &utxos, &to, 10_000, u64::MAX, 0).is_err());
+    assert!(build_payment(&secp, &watch, &utxos, &to, u64::MAX, 2, 0).is_err());
+}

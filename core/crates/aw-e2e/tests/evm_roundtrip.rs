@@ -1243,3 +1243,69 @@ fn safe_second_review_gaps_are_closed() {
         r.display.warnings
     );
 }
+
+/// 审计 P1-9 / P1-11：未知合约 transfer、已知代币大额授权、手续费绝对值过高都要强警告；手续费行有单独样式
+#[test]
+fn p1_review_warnings() {
+    let secp = Secp256k1::new();
+    let s = signer(&secp);
+    let w = watcher_account(&s);
+    let review_tx = |tx: Vec<u8>| {
+        let req = build_request(&secp, &w, 0, tx, DataType::TypedTx, Some(1), [16; 16]).unwrap();
+        review(&secp, &s.account, &req).unwrap().display
+    };
+    let danger_with = |d: &aw_common::display::Display, needle: &str| {
+        d.warnings
+            .iter()
+            .any(|x| x.level == Level::Danger && x.text.contains(needle))
+    };
+    let unknown = "0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359";
+    // 1. 未知合约 transfer
+    let d = review_tx(payment(
+        1,
+        unknown,
+        0,
+        erc20_transfer(&parse_address(RECIPIENT).unwrap(), U256::from_u64(5)),
+    ));
+    assert!(danger_with(&d, "未知合约"), "{:?}", d.warnings);
+    // 已知代币的普通转账不加这条告警
+    let d = review_tx(payment(
+        1,
+        USDT_ETH,
+        0,
+        erc20_transfer(&parse_address(RECIPIENT).unwrap(), U256::from_u64(5)),
+    ));
+    assert!(!d.has_danger(), "{:?}", d.warnings);
+    // 2. 已知代币大额授权：999 999 999 999 USDT（不到"无限额"门槛）
+    let mut approve = aw_common::hex::decode("095ea7b3").unwrap();
+    approve.extend_from_slice(&[0u8; 12]);
+    approve.extend_from_slice(&parse_address(RECIPIENT).unwrap());
+    approve.extend_from_slice(&U256::from_u64(999_999_999_999_000_000).to_be_bytes());
+    let d = review_tx(payment(1, USDT_ETH, 0, approve));
+    assert!(danger_with(&d, "大额授权"), "{:?}", d.warnings);
+    // 小额授权仍只是提醒
+    let mut small = aw_common::hex::decode("095ea7b3").unwrap();
+    small.extend_from_slice(&[0u8; 12]);
+    small.extend_from_slice(&parse_address(RECIPIENT).unwrap());
+    small.extend_from_slice(&U256::from_u64(100_000_000).to_be_bytes());
+    assert!(!review_tx(payment(1, USDT_ETH, 0, small)).has_danger());
+    // 3. 手续费绝对值：21000 × 3000 gwei = 0.063 ETH > 0.05
+    let tx = build_eip1559(&Eip1559 {
+        chain_id: 1,
+        nonce: 1,
+        max_priority_fee: U256::from_u64(1_000_000_000),
+        max_fee: U256::from_u64(3_000_000_000_000),
+        gas_limit: 21_000,
+        to: parse_address(RECIPIENT).unwrap(),
+        value: U256::from_u64(1_000_000_000_000_000_000),
+        data: vec![],
+    })
+    .unwrap();
+    let d = review_tx(tx);
+    assert!(danger_with(&d, "最高手续费超过"), "{:?}", d.warnings);
+    // 4. 手续费行使用单独样式，不与金额混同
+    let fee_row = d.rows.iter().find(|r| r.label == "最高手续费").unwrap();
+    assert_eq!(fee_row.style, aw_common::display::Style::Fee);
+    let amount_row = d.rows.iter().find(|r| r.label == "金额").unwrap();
+    assert_eq!(amount_row.style, aw_common::display::Style::Amount);
+}

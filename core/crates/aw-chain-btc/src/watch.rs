@@ -74,6 +74,12 @@ pub fn build_payment<C: Verification>(
     let mut sorted: Vec<&Utxo> = utxos.iter().collect();
     sorted.sort_by_key(|u| std::cmp::Reverse(u.txout().map_or(0, |o| o.value.to_sat())));
 
+    // 审计 P1-10：费率、金额来自用户输入与节点，全部用检查算术（极端值返回错误，不溢出）
+    let fee_for = |inputs: usize, outputs: usize| {
+        fee_rate_sat_vb
+            .checked_mul(vsize_for(inputs, outputs))
+            .ok_or(BtcError::AmountOverflow)
+    };
     let mut chosen = Vec::new();
     let mut total = 0u64;
     for u in sorted {
@@ -81,13 +87,19 @@ pub fn build_payment<C: Verification>(
         total = total
             .checked_add(u.txout().map_or(0, |o| o.value.to_sat()))
             .ok_or(BtcError::AmountOverflow)?;
-        if total >= amount + fee_rate_sat_vb * vsize_for(chosen.len(), 2) {
+        let need = amount
+            .checked_add(fee_for(chosen.len(), 2)?)
+            .ok_or(BtcError::AmountOverflow)?;
+        if total >= need {
             break;
         }
     }
-    let fee_two = fee_rate_sat_vb * vsize_for(chosen.len(), 2);
-    let fee_one = fee_rate_sat_vb * vsize_for(chosen.len(), 1);
-    let (change, fee) = match total.checked_sub(amount + fee_two) {
+    let fee_two = fee_for(chosen.len(), 2)?;
+    let fee_one = fee_for(chosen.len(), 1)?;
+    let need_two = amount
+        .checked_add(fee_two)
+        .ok_or(BtcError::AmountOverflow)?;
+    let (change, fee) = match total.checked_sub(need_two) {
         Some(c) if c >= DUST_P2WPKH => (Some(c), fee_two),
         _ => {
             let fee = total

@@ -24,6 +24,10 @@ use bitcoin::secp256k1::{Secp256k1, Verification};
 const HIGH_GAS_PRICE_WEI: u64 = 1_000_000_000_000;
 /// 优先费超过 100 gwei 视为异常
 const HIGH_PRIORITY_FEE_WEI: u64 = 100_000_000_000;
+/// 一笔交易的最高手续费超过 0.05 个原生币即高风险（审计 P1-11）
+const HIGH_MAX_FEE_WEI: u64 = 50_000_000_000_000_000;
+/// 已知代币的授权额度达到 100 万枚即算"大额"，需要确认（审计 P1-9）
+const LARGE_APPROVAL_TOKENS: u64 = 1_000_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reviewed {
@@ -110,6 +114,17 @@ pub(crate) fn is_huge(chain_id: u64, token: &[u8; 20], v: U256) -> bool {
     }
 }
 
+/// 已知代币的额度达到 LARGE_APPROVAL_TOKENS 枚
+fn is_large(chain_id: u64, token: &[u8; 20], v: U256) -> bool {
+    token_info(chain_id, token).is_some_and(|t| {
+        let mut limit = U256::from_u64(LARGE_APPROVAL_TOKENS);
+        for _ in 0..t.decimals {
+            limit = limit.checked_mul(U256::from_u64(10)).unwrap_or(U256::MAX);
+        }
+        v >= limit
+    })
+}
+
 /// 授权额度的显示与警告。ERC-20 与 ERC-721 的 approve 选择器相同：对未知合约，
 /// 数值可能是"额度"也可能是"NFT 编号"，一律按高风险处理，且不显示"撤销"字样。
 fn approval_rows(d: &mut Display, chain_id: u64, token: &[u8; 20], a: U256, plain_approve: bool) {
@@ -129,6 +144,12 @@ fn approval_rows(d: &mut Display, chain_id: u64, token: &[u8; 20], a: U256, plai
         d.warn(
             Level::Danger,
             "无限额授权：被授权方可以随时转走你在该代币中的全部余额",
+        );
+    } else if is_large(chain_id, token, a) {
+        d.row("授权额度", token_amount(chain_id, token, a), Style::Amount);
+        d.warn(
+            Level::Danger,
+            format!("大额授权（不少于 {LARGE_APPROVAL_TOKENS} 枚）：被授权方可以在额度内随时转走这些代币"),
         );
     } else {
         d.row("授权额度", token_amount(chain_id, token, a), Style::Amount);
@@ -594,6 +615,12 @@ fn describe_tx(tx: &UnsignedTx, own: &[u8; 20], index: u32) -> Result<Display, E
                 token_amount(tx.chain_id, &token, *a),
                 Style::Amount,
             );
+            if token_info(tx.chain_id, &token).is_none() {
+                d.warn(
+                    Level::Danger,
+                    "未知合约的 transfer：签名机无法确认它是哪种代币，也可能根本不是代币合约；数量按原始数值显示",
+                );
+            }
         }
         (Some(token), Call::Approve { spender, amount: a })
         | (Some(token), Call::IncreaseAllowance { spender, amount: a }) => {
@@ -802,7 +829,7 @@ fn describe_tx(tx: &UnsignedTx, own: &[u8; 20], index: u32) -> Result<Display, E
 
 fn fee_rows(d: &mut Display, tx: &UnsignedTx, symbol: &str) -> Result<(), EvmError> {
     let max_fee = tx.max_fee()?;
-    d.row("最高手续费", amount(max_fee, symbol), Style::Amount);
+    d.row("最高手续费", amount(max_fee, symbol), Style::Fee);
     match tx.kind {
         TxKind::DynamicFee => {
             d.row("最高 Gas 单价", gwei(tx.gas_price), Style::Text);
@@ -834,6 +861,16 @@ fn fee_rows(d: &mut Display, tx: &UnsignedTx, symbol: &str) -> Result<(), EvmErr
         d.warn(
             Level::Caution,
             "优先费异常高（超过 100 gwei）：节点给出的建议值可能有问题",
+        );
+    }
+    // 审计 P1-11：手续费绝对上限（与比例无关；也覆盖代币转账与合约调用）
+    if max_fee > U256::from_u64(HIGH_MAX_FEE_WEI) {
+        d.warn(
+            Level::Danger,
+            format!(
+                "最高手续费超过 {}：请确认 Gas 单价和 Gas 上限没有被改大",
+                amount(U256::from_u64(HIGH_MAX_FEE_WEI), symbol)
+            ),
         );
     }
     // 原生币转账：手续费上限超过金额的 10%
