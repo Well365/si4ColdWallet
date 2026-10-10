@@ -190,6 +190,7 @@ struct EvmPayView: View {
                     ForEach(network.tokens) { Text($0.symbol).tag(EvmToken?.some($0)) }
                 }
                 TextField("0x…", text: $to)
+                    .keyboardType(.asciiCapable)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
                     .font(.system(.footnote, design: .monospaced))
                 TextField("金额（如 0.01）", text: $amount).keyboardType(.decimalPad)
@@ -240,6 +241,7 @@ struct EvmPayView: View {
         }
         .navigationTitle("发送（\(network.name)）")
         .task { await loadFees() }
+        .scrollDismissesKeyboard(.immediately)
         .onChange(of: token) { _, _ in
             estimatedGas = nil
             gasNote = nil

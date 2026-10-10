@@ -9,6 +9,7 @@ struct WatcherApp: App {
             TabView {
                 WatcherRoot().tabItem { Label("比特币", systemImage: "bitcoinsign.circle") }
                 EvmTab().tabItem { Label("以太坊 / BNB", systemImage: "diamond") }
+                SolTab().tabItem { Label("Solana", systemImage: "sun.max") }
             }
         }
     }

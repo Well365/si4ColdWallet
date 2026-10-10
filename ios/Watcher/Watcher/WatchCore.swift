@@ -8,6 +8,18 @@ enum WatchCore {
     struct Failure: Error {
         let code: Int32
         var message: String {
+            if code <= AW_ERR_SOL_REJECT_BASE, code > AW_ERR_SOL_REJECT_BASE - 100 {
+                let n = AW_ERR_SOL_REJECT_BASE - code
+                let sol: [Int32: String] = [
+                    1: "Solana 交易数据无法严格解析", 2: "交易使用了地址查找表，签名机会拒签",
+                    3: "这笔交易不需要本账户签名", 4: "交易会改变账户归属的程序，签名机会拒签",
+                    5: "交易会交出代币账户或代币的控制权，签名机会拒签", 6: "数值溢出",
+                    7: "不支持的请求类型", 8: "账户类型不受支持",
+                    9: "地址与账户类型 / 序号不一致", 10: "密钥派生失败",
+                    11: "签名机返回的签名无效，拒绝", 12: "签名机返回的签名与本次请求不对应，拒绝",
+                ]
+                return sol[n] ?? "Solana 错误 \(n)"
+            }
             switch code {
             case AW_ERR_TX_REJECT_BASE - 19: return "余额不足（含手续费）"
             case AW_ERR_TX_REJECT_BASE - 20: return "UTXO 与本账户地址不符"

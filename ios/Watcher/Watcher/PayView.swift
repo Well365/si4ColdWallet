@@ -27,6 +27,7 @@ struct PayView: View {
         Form {
             Section("收款人") {
                 TextField(account.isTestnet ? "tb1…" : "bc1…", text: $to)
+                    .keyboardType(.asciiCapable)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
                     .font(.system(.footnote, design: .monospaced))
                 TextField("金额（聪）", text: $amount).keyboardType(.numberPad)
@@ -66,6 +67,7 @@ struct PayView: View {
             if let error { Section { Text(error).foregroundStyle(.red) } }
         }
         .navigationTitle("付款")
+        .scrollDismissesKeyboard(.immediately)
         .task { if tiers.isEmpty { await loadFees() } }
     }
 

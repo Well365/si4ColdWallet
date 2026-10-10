@@ -16,6 +16,8 @@ struct NodeNetwork: Hashable {
     enum Kind: Hashable {
         case evm(chainId: UInt64)
         case esplora(testnet: Bool)
+        /// Solana：按创世区块哈希区分主网 / devnet
+        case solana(genesis: String)
     }
 
     let key: String
@@ -25,6 +27,10 @@ struct NodeNetwork: Hashable {
 
     static func evm(_ n: EvmNetwork) -> NodeNetwork {
         NodeNetwork(key: "evm-\(n.chainId)", title: n.name, kind: .evm(chainId: n.chainId), builtins: n.nodes)
+    }
+
+    static func solana(_ n: SolNetwork) -> NodeNetwork {
+        NodeNetwork(key: "sol-\(n.genesis.prefix(8))", title: n.name, kind: .solana(genesis: n.genesis), builtins: n.nodes)
     }
 
     static func bitcoin(testnet: Bool) -> NodeNetwork {
@@ -157,6 +163,11 @@ enum NodeProbe {
                 guard id == chainId else { return NodeHealth(problem: "链 ID 不符（节点是 \(id)，需要 \(chainId)）") }
                 let h = try await rpc.blockNumber()
                 return NodeHealth(height: h, latencyMs: elapsed())
+            case .solana(let genesis):
+                let rpc = SolRPC(url: url, timeout: 8)
+                guard try await rpc.genesisHash() == genesis else { return NodeHealth(problem: "网络不符（创世区块哈希不对）") }
+                let h = try await rpc.slot()
+                return NodeHealth(height: h, latencyMs: elapsed())
             case .esplora(let testnet):
                 let e = Esplora(base: url, timeout: 8)
                 let genesis = try await e.genesisHash()
@@ -167,6 +178,8 @@ enum NodeProbe {
                 return NodeHealth(height: h, latencyMs: elapsed())
             }
         } catch let e as EvmRPC.RPCError {
+            return NodeHealth(problem: "失败：\(e.message)")
+        } catch let e as SolRPC.RPCError {
             return NodeHealth(problem: "失败：\(e.message)")
         } catch {
             return NodeHealth(problem: "连接失败：\(error.localizedDescription)")
