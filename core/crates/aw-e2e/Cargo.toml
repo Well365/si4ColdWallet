@@ -14,7 +14,7 @@ aw-ur.workspace = true
 aw-chain-btc = { workspace = true, features = ["signing", "watch"] }
 aw-chain-evm = { workspace = true, features = ["signing", "watch"] }
 aw-common.workspace = true
-aw-chain-sol.workspace = true
+aw-chain-sol = { workspace = true, features = ["signing", "watch"] }
 aw-chain-near.workspace = true
 aw-chain-tron.workspace = true
 bitcoin.workspace = true

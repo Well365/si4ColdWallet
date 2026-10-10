@@ -50,6 +50,8 @@ name = "aw-chain-sol"
 version = "0.1.0"
 dependencies = [
  "aw-common",
+ "aw-keys",
+ "aw-ur",
  "base58ck",
  "bitcoin_hashes",
  "ed25519-compact",

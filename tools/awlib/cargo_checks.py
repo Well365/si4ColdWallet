@@ -92,8 +92,9 @@ def cmd_check_cargo(_args):
                 build_code.add(os.path.relpath(src, ROOT))
     # 决策 D1：两个 FFI 库各自单独构建时的依赖图必须隔离（Cargo 会合并同一次构建中各包的 feature）
     for pkg, forbidden in (("aw-ffi-watch", ("aw-keys v", "aw-bip39 v", 'aw-chain-btc feature "signing"',
-                                             'aw-chain-evm feature "signing"')),
-                           ("aw-ffi-signer", ('aw-chain-btc feature "watch"', 'aw-chain-evm feature "watch"'))):
+                                             'aw-chain-evm feature "signing"', 'aw-chain-sol feature "signing"')),
+                           ("aw-ffi-signer", ('aw-chain-btc feature "watch"', 'aw-chain-evm feature "watch"',
+                                              'aw-chain-sol feature "watch"'))):
         t = subprocess.run(["cargo", "tree", "-p", pkg, "-e", "normal,build,features", "--locked", "--offline",
                             "--prefix", "none", "--target", "aarch64-apple-ios"],
                            cwd=ROOT, capture_output=True, text=True)

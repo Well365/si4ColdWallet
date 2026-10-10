@@ -7,8 +7,16 @@ license.workspace = true
 publish.workspace = true
 rust-version.workspace = true
 
+[features]
+# 签名机：派生私钥并签名
+signing = ["dep:aw-keys"]
+# 观察机：构造交易、核对签名
+watch = []
+
 [dependencies]
 aw-common.workspace = true
+aw-keys = { workspace = true, optional = true }
+aw-ur.workspace = true
 base58ck.workspace = true
 # PDA / 关联代币账户的 SHA-256
 bitcoin_hashes.workspace = true

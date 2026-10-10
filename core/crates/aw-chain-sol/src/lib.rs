@@ -9,7 +9,12 @@
 
 pub mod message;
 pub mod programs;
+pub mod request;
 pub mod review;
+#[cfg(feature = "signing")]
+pub mod sign;
+#[cfg(feature = "watch")]
+pub mod watch;
 
 /// Solana 审查与签名的错误
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,6 +31,18 @@ pub enum SolError {
     SetAuthority,
     /// 数值溢出
     Overflow,
+    /// 不支持的请求（例如链下消息签名）
+    Unsupported,
+    /// 派生路径不是 D34 的三种方案之一
+    PathMismatch,
+    /// 请求声明的地址与派生出的地址不符
+    AddressMismatch,
+    /// 密钥派生或签名自检失败
+    Derivation,
+    /// 签名无效
+    BadSignature,
+    /// 签名机返回的签名与本次请求不对应
+    RequestMismatch,
 }
 
 /// 派生方案（D34）。`ALL` 的顺序就是 FFI `aw_session_address` 的 scheme 编号
