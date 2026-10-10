@@ -1,0 +1,23 @@
+@startgantt p2c-progress
+' P2c Solana 交易签名的任务进度（2026-10-11）
+title P2c Solana 交易审查与签名（2026-10-11）
+skinparam defaultFontName "PingFang SC"
+project starts 2026-10-11
+[T1 消息解析 + 600 条独立向量] starts 2026-10-11 and lasts 1 day
+[T1 消息解析 + 600 条独立向量] is 100% completed
+[T1 消息解析 + 600 条独立向量] is colored in LightGreen
+[T2 审查规则、手续费、收款人核对（ATA 60 组向量）] starts 2026-10-11 and lasts 1 day
+[T2 审查规则、手续费、收款人核对（ATA 60 组向量）] is 100% completed
+[T2 审查规则、手续费、收款人核对（ATA 60 组向量）] is colored in LightGreen
+[T3 签名请求、三种路径签名、C 接口] starts 2026-10-11 and lasts 1 day
+[T3 签名请求、三种路径签名、C 接口] is 100% completed
+[T3 签名请求、三种路径签名、C 接口] is colored in LightGreen
+[T4 观察机 Solana 页] starts 2026-10-11 and lasts 1 day
+[T4 观察机 Solana 页] is 100% completed
+[T4 观察机 Solana 页] is colored in LightGreen
+[T5 文档 + 独立复审] starts 2026-10-11 and lasts 1 day
+[T5 文档 + 独立复审] is 60% completed
+[T5 文档 + 独立复审] is colored in Gold
+[真机 devnet 实发（需要测试币）] starts 2026-10-12 and lasts 1 day
+[真机 devnet 实发（需要测试币）] is 0% completed
+@endgantt
