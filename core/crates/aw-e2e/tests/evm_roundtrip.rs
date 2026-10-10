@@ -384,7 +384,7 @@ fn signer_rejects_dangerous_or_inconsistent_requests() {
     )
     .unwrap();
     reject(&secp, &s, &req, EvmError::DelegateCall);
-    // EIP-712 尚未实现：不签
+    // 数据类型与内容不符（交易字节冒充 EIP-712 结构化数据）
     reject(
         &secp,
         &s,
@@ -392,7 +392,7 @@ fn signer_rejects_dangerous_or_inconsistent_requests() {
             data_type: DataType::TypedData,
             ..good.clone()
         },
-        EvmError::Unsupported,
+        EvmError::Parse,
     );
     // 数据类型与内容不符（类型化交易冒充旧式交易）
     reject(

@@ -1,15 +1,17 @@
 //! 签名前审查（威胁 T5/T8/T9/T11）：从待签字节重新解析出全部字段，生成通用显示模型。
 //!
 //! 默认拒签（返回错误）：路径不是本账户、声明地址不符、链 ID 不一致、无重放保护、
-//! EIP-7702、Safe DELEGATECALL。强警告：无限额授权、Permit2、setApprovalForAll、
-//! 未知合约调用、部署合约、未知链、32 字节消息。
+//! EIP-7702、Safe DELEGATECALL、EIP-712 域的链 ID 与请求不一致。强警告：无限额授权、Permit2、
+//! setApprovalForAll、未知合约调用、部署合约、未知链、32 字节消息、一切 EIP-712 结构化签名。
 
 use crate::abi::{self, Call};
 use crate::chains::{chain_info, token_info, PERMIT2};
+use crate::eip712::TypedData;
 use crate::keccak::keccak256;
 use crate::message::{as_text, personal_hash};
 use crate::request::{DataType, SignRequest};
 use crate::tx::{parse_legacy, parse_typed, TxKind, UnsignedTx, VStyle};
+use crate::typed_review;
 use crate::uint::U256;
 use crate::{checksum_address, Account, EvmError};
 use aw_common::display::{Display, Level, Style};
@@ -31,13 +33,13 @@ pub struct Reviewed {
     pub v_style: VStyle,
 }
 
-struct Chain {
-    name: String,
-    network: String,
-    symbol: String,
+pub(crate) struct Chain {
+    pub(crate) name: String,
+    pub(crate) network: String,
+    pub(crate) symbol: String,
 }
 
-fn chain(id: u64, d: Option<&mut Display>) -> Chain {
+pub(crate) fn chain(id: u64, d: Option<&mut Display>) -> Chain {
     match chain_info(id) {
         Some(c) => {
             if let (Some(d), true) = (d, c.testnet) {
@@ -65,7 +67,7 @@ fn chain(id: u64, d: Option<&mut Display>) -> Chain {
     }
 }
 
-fn amount(v: U256, symbol: &str) -> String {
+pub(crate) fn amount(v: U256, symbol: &str) -> String {
     format!("{} {symbol}", v.format_units(18))
 }
 
@@ -73,14 +75,14 @@ fn gwei(v: U256) -> String {
     format!("{} gwei", v.format_units(9))
 }
 
-fn token_amount(chain_id: u64, contract: &[u8; 20], v: U256) -> String {
+pub(crate) fn token_amount(chain_id: u64, contract: &[u8; 20], v: U256) -> String {
     match token_info(chain_id, contract) {
         Some(t) => format!("{} {}", v.format_units(t.decimals), t.symbol),
         None => format!("{}（代币精度未知，显示原始数值）", v.to_decimal()),
     }
 }
 
-fn contract_label(chain_id: u64, c: &[u8; 20]) -> String {
+pub(crate) fn contract_label(chain_id: u64, c: &[u8; 20]) -> String {
     match token_info(chain_id, c) {
         Some(t) => format!("{}（{}）", checksum_address(c), t.symbol),
         None => checksum_address(c),
@@ -88,7 +90,7 @@ fn contract_label(chain_id: u64, c: &[u8; 20]) -> String {
 }
 
 /// 额度"极大"：≥ 2^128，或已知代币超过 1 万亿枚（实际上等于无限额）
-fn is_huge(chain_id: u64, token: &[u8; 20], v: U256) -> bool {
+pub(crate) fn is_huge(chain_id: u64, token: &[u8; 20], v: U256) -> bool {
     /// 2^128 的大端字节
     const TWO_POW_128: [u8; 17] = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     if U256::from_be_slice(&TWO_POW_128).is_some_and(|limit| v >= limit) {
@@ -182,8 +184,17 @@ pub fn review<C: Verification>(
             index,
             v_style: VStyle::Legacy27,
         }),
-        // EIP-712 结构化数据在 P2a 第二部分实现；之前一律不签
-        DataType::TypedData => Err(EvmError::Unsupported),
+        DataType::TypedData => {
+            let json = core::str::from_utf8(&req.sign_data).map_err(|_| EvmError::Parse)?;
+            let td = TypedData::parse(json)?;
+            let digest = td.digest()?;
+            Ok(Reviewed {
+                display: typed_review::describe(&td, &digest, req.chain_id, &own, index)?,
+                hash: digest.hash,
+                index,
+                v_style: VStyle::Legacy27,
+            })
+        }
     }
 }
 

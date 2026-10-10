@@ -177,6 +177,40 @@ impl U256 {
         Some(v)
     }
 
+    /// 2^n（n < 256）
+    pub fn bit(n: u32) -> Option<U256> {
+        let mut limbs = [0u64; 4];
+        let limb = limbs.get_mut(usize::try_from(n / 64).ok()?)?;
+        *limb = 1u64 << (n % 64);
+        Some(U256(limbs))
+    }
+
+    /// 二进制补码取负（256 位，回绕）
+    pub fn wrapping_neg(self) -> U256 {
+        let mut out = [0u64; 4];
+        let mut carry = 1u64;
+        for (o, l) in out.iter_mut().zip(self.0) {
+            let (v, c) = (!l).overflowing_add(carry);
+            *o = v;
+            carry = u64::from(c);
+        }
+        U256(out)
+    }
+
+    /// 十六进制文本（"0x" 加 1–64 位十六进制数字，允许前导零；EIP-712 的数值写法）
+    pub fn from_hex_lenient(s: &str) -> Option<U256> {
+        let h = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X"))?;
+        if h.is_empty() || h.len() > 64 || !h.bytes().all(|c| c.is_ascii_hexdigit()) {
+            return None;
+        }
+        let padded = if h.len() % 2 == 1 {
+            format!("0{h}")
+        } else {
+            h.to_owned()
+        };
+        U256::from_be_slice(&aw_common::hex::decode(&padded.to_ascii_lowercase())?)
+    }
+
     /// JSON-RPC 的十六进制数量（"0x0"、"0x1a2b"）：必须有 0x 前缀、无多余前导零、不超过 256 位
     pub fn from_hex_quantity(s: &str) -> Option<U256> {
         let h = s.strip_prefix("0x")?;
@@ -240,6 +274,24 @@ mod tests {
         let b = U256::from_be_bytes(&U256::MAX.to_be_bytes());
         assert_eq!(b, U256::MAX);
         assert_eq!(U256::from_be_slice(&[0u8; 33]), None);
+    }
+
+    #[test]
+    fn bits_negation_and_lenient_hex() {
+        assert_eq!(U256::bit(0), Some(U256::from_u64(1)));
+        assert_eq!(U256::bit(64).unwrap().to_decimal(), "18446744073709551616");
+        assert!(U256::bit(255).unwrap().top_bit());
+        assert_eq!(U256::bit(256), None);
+        assert_eq!(U256::from_u64(1).wrapping_neg(), U256::MAX);
+        assert_eq!(U256::ZERO.wrapping_neg(), U256::ZERO);
+        assert_eq!(
+            U256::from_u64(5).wrapping_neg().wrapping_neg(),
+            U256::from_u64(5)
+        );
+        assert_eq!(U256::from_hex_lenient("0x0001"), Some(U256::from_u64(1)));
+        assert_eq!(U256::from_hex_lenient("0xFF"), Some(U256::from_u64(255)));
+        assert_eq!(U256::from_hex_lenient("0x"), None);
+        assert_eq!(U256::from_hex_lenient("12"), None);
     }
 
     #[test]

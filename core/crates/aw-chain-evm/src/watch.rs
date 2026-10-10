@@ -3,6 +3,7 @@
 //! 观察机不持有私钥，同样不完全信任签名机：签名必须对应自己发出的请求（请求号一致），
 //! 能恢复出本账户该地址，且 s 为低值（EIP-2，否则节点拒收）。
 
+use crate::eip712::TypedData;
 use crate::keccak::keccak256;
 use crate::message::personal_hash;
 use crate::request::{DataType, SignRequest, Signature};
@@ -104,7 +105,10 @@ pub fn finalize<C: Verification>(
             (keccak256(&req.sign_data), VStyle::Parity, tx.chain_id)
         }
         DataType::PersonalMessage => (personal_hash(&req.sign_data), VStyle::Legacy27, 0),
-        DataType::TypedData => return Err(EvmError::Unsupported),
+        DataType::TypedData => {
+            let json = core::str::from_utf8(&req.sign_data).map_err(|_| EvmError::Parse)?;
+            (TypedData::parse(json)?.digest()?.hash, VStyle::Legacy27, 0)
+        }
     };
     let es = decode_sig(&sig.signature, style)?;
     let mut compact = [0u8; 64];

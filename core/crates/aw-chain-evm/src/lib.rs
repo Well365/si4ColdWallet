@@ -8,12 +8,14 @@
 pub mod abi;
 pub mod account_ur;
 pub mod chains;
+pub mod eip712;
 pub mod keccak;
 pub mod message;
 pub mod request;
 pub mod review;
 pub mod rlp;
 pub mod tx;
+pub mod typed_review;
 pub mod uint;
 
 #[cfg(feature = "signing")]
