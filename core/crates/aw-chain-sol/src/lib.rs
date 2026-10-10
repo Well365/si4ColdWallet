@@ -8,6 +8,7 @@
 //! 地址 = Base58(公钥)。私钥派生在签名机的 aw-keys 中完成；本模块只处理公开信息。
 
 pub mod message;
+pub mod programs;
 
 /// Solana 审查与签名的错误
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

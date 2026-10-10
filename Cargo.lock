@@ -51,6 +51,8 @@ version = "0.1.0"
 dependencies = [
  "aw-common",
  "base58ck",
+ "bitcoin_hashes",
+ "ed25519-compact",
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
 [package]
 name = "aw-chain-sol"
-description = "Solana：地址（P2 先做地址；交易审查与签名在 P2d）。"
+description = "Solana：地址、消息解析、交易审查与签名（P2c）。"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,6 +10,10 @@ rust-version.workspace = true
 [dependencies]
 aw-common.workspace = true
 base58ck.workspace = true
+# PDA / 关联代币账户的 SHA-256
+bitcoin_hashes.workspace = true
+# 曲线点判断（PDA 必须不在曲线上）与签名核对
+ed25519-compact.workspace = true
 
 [lints]
 workspace = true
