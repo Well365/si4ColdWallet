@@ -18,15 +18,15 @@ use aw_ur::registry::{decode_hdkey, encode_hdkey, Style};
 use bitcoin::secp256k1::{Secp256k1, VerifyOnly};
 
 pub struct AwEvmAccount {
-    account: Account,
-    secp: Secp256k1<VerifyOnly>,
+    pub(crate) account: Account,
+    pub(crate) secp: Secp256k1<VerifyOnly>,
 }
 
 pub struct AwEvmPending {
-    req: SignRequest,
+    pub(crate) req: SignRequest,
 }
 
-fn evm_code(e: EvmError) -> i32 {
+pub(crate) fn evm_code(e: EvmError) -> i32 {
     let n = match e {
         EvmError::Parse => 1,
         EvmError::Unsupported => 2,
@@ -333,6 +333,20 @@ pub unsafe extern "C" fn aw_evm_build_transfer(
         let display = review(&a.secp, &a.account, &req).map_err(evm_code)?.display;
         Ok((AwEvmPending { req }, display))
     })();
+    // SAFETY: 调用方保证。
+    unsafe { hand_pending(r, out_pending, out_json, out_json_len) }
+}
+
+/// 交出待签句柄与显示模型 JSON（构造交易与构造消息共用）
+///
+/// # Safety
+/// 输出指针有效可写（`out_json` / `out_json_len` 已由调用方清零）。
+pub(crate) unsafe fn hand_pending(
+    r: Result<(AwEvmPending, Display), i32>,
+    out_pending: *mut *mut AwEvmPending,
+    out_json: *mut *mut u8,
+    out_json_len: *mut usize,
+) -> i32 {
     match r {
         Ok((p, d)) => {
             // SAFETY: 调用方保证。

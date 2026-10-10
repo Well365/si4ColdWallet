@@ -74,6 +74,12 @@ int32_t  aw_evm_pending_encoder(const AwEvmPending *p, AwUrEncoder **out);
 int32_t  aw_evm_pending_finalize(const AwEvmAccount *a, const AwEvmPending *p, const AwUrDecoder *d,
                                  uint8_t **out_hex, size_t *out_len);
 void     aw_evm_pending_free(AwEvmPending *p);
+/* 消息签名请求：kind 0 = personal_sign（text 为 UTF-8 消息），1 = EIP-712（text 为 eth_signTypedData_v4 的 JSON）。
+ * chain_id 为 0 表示不声明链；EIP-712 域里的链 ID 与之不符时拒绝。out_json 为与签名机相同的显示模型。
+ * 签名回来后用 aw_evm_pending_finalize 核对，输出 "0x…" 65 字节签名（v 为 27/28） */
+int32_t  aw_evm_build_message(const AwEvmAccount *a, uint32_t index, uint8_t kind, const uint8_t *text, size_t len,
+                              uint64_t chain_id, const uint8_t *request_id16,
+                              AwEvmPending **out_pending, uint8_t **out_json, size_t *out_json_len);
 /* "0x…" 原始交易的交易哈希（核对节点返回值） */
 int32_t  aw_evm_tx_hash(const uint8_t *hex, size_t len, uint8_t **out, size_t *out_len);
 

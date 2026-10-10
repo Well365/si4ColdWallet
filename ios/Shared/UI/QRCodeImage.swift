@@ -4,15 +4,22 @@ import SwiftUI
 
 /// 用系统 CoreImage 生成二维码（决策 D9：不引入第三方二维码库）。
 enum QRCodeImage {
+    /// 共用一个渲染上下文：每帧新建一个代价很高，动画二维码会占满主线程、界面失去响应
+    private static let context = CIContext()
+
     /// UR 帧是大写字母数字，用 L 级纠错即可（动画中丢帧由喷泉码弥补）。
+    /// 按每个模块 1 像素生成，由界面用 `.interpolation(.none)` 放大，既清晰又省计算。
     static func make(_ text: String) -> UIImage? {
+        makeCG(text).map { UIImage(cgImage: $0) }
+    }
+
+    /// 可在后台线程调用（CIContext 线程安全）
+    nonisolated static func makeCG(_ text: String) -> CGImage? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(text.utf8)
         filter.correctionLevel = "L"
         guard let output = filter.outputImage else { return nil }
-        let scaled = output.transformed(by: CGAffineTransform(scaleX: 10, y: 10))
-        guard let cg = CIContext().createCGImage(scaled, from: scaled.extent) else { return nil }
-        return UIImage(cgImage: cg)
+        return context.createCGImage(output, from: output.extent)
     }
 }
 
@@ -28,6 +35,8 @@ struct AnimatedQRView: View {
     let source: QRFrameSource
     @State private var image: UIImage?
     @State private var shown = 0
+    /// 上一帧还在生成时跳过本次（帧较密时生成可能慢于 0.25 秒）
+    @State private var rendering = false
 
     var body: some View {
         VStack(spacing: 12) {
@@ -55,9 +64,15 @@ struct AnimatedQRView: View {
         .onAppear { advance() }
     }
 
+    /// 二维码图像在后台线程生成，主线程只负责显示：否则帧较密时主线程被占满，界面无法滚动
     private func advance() {
-        guard let frame = source.nextFrame() else { return }
-        image = QRCodeImage.make(frame)
-        shown += 1
+        guard !rendering, let frame = source.nextFrame() else { return }
+        rendering = true
+        Task {
+            let cg = await Task.detached(priority: .userInitiated) { QRCodeImage.makeCG(frame) }.value
+            image = cg.map { UIImage(cgImage: $0) }
+            shown += 1
+            rendering = false
+        }
     }
 }

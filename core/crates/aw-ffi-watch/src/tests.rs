@@ -333,3 +333,91 @@ fn evm_import_build_and_finalize() {
 fn signer_btc() -> SigningAccount {
     signer().1
 }
+
+#[test]
+fn evm_message_requests() {
+    use aw_chain_evm::request::{decode_request, encode_signature};
+    use aw_ffi_common::AW_ERR_EVM_REJECT_BASE;
+    use evm::*;
+    use evm_message::aw_evm_build_message;
+    let secp = Secp256k1::new();
+    let seed = aw_bip39::Mnemonic::parse(MNEMONIC)
+        .unwrap()
+        .to_seed("")
+        .unwrap();
+    let master = aw_keys::master(&seed, Network::Testnet).unwrap();
+    let signer = aw_chain_evm::sign::EvmSigner::from_master(&secp, &master).unwrap();
+    let ur = aw_ur::ur::encode(
+        &encode_hdkey(
+            &aw_chain_evm::account_ur::account_to_hdkey(&signer.account),
+            Style::Legacy,
+        )
+        .unwrap(),
+    );
+    let mut a = core::ptr::null_mut();
+    assert_eq!(
+        unsafe { aw_evm_from_ur(ur.as_ptr(), ur.len(), &mut a) },
+        AW_OK
+    );
+    let build = |kind: u8, text: &[u8], chain: u64| {
+        let (mut p, mut j, mut jl) = (core::ptr::null_mut(), core::ptr::null_mut(), 0usize);
+        let rc = unsafe {
+            aw_evm_build_message(
+                a,
+                0,
+                kind,
+                text.as_ptr(),
+                text.len(),
+                chain,
+                [4u8; 16].as_ptr(),
+                &mut p,
+                &mut j,
+                &mut jl,
+            )
+        };
+        let json = if rc == AW_OK {
+            String::from_utf8(take(j, jl)).unwrap()
+        } else {
+            assert!(p.is_null() && j.is_null());
+            String::new()
+        };
+        (rc, p, json)
+    };
+    let typed = br#"{"types":{"EIP712Domain":[{"name":"name","type":"string"},{"name":"chainId","type":"uint256"}],"Hello":[{"name":"text","type":"string"}]},"primaryType":"Hello","domain":{"name":"demo","chainId":11155111},"message":{"text":"hi"}}"#;
+    // 观察机先用同一份审查代码检查：显示模型与签名机相同
+    let (rc, pending, json) = build(1, typed, 11_155_111);
+    assert_eq!(rc, AW_OK);
+    assert!(
+        json.contains("结构化签名（Hello）") && json.contains("\"danger\""),
+        "{json}"
+    );
+    // 签名机一侧（用签名代码模拟）→ 观察机核对，输出 65 字节签名
+    let mut enc = core::ptr::null_mut();
+    assert_eq!(unsafe { aw_evm_pending_encoder(pending, &mut enc) }, AW_OK);
+    let d = pump(enc);
+    let req = decode_request(unsafe { aw_ffi_common::decoded_ur(d) }.unwrap()).unwrap();
+    unsafe { aw_ur_decoder_free(d) };
+    let (_, sig) = aw_chain_evm::sign::sign(&secp, &signer, &req).unwrap();
+    let back = pump(aw_ffi_common::new_encoder(encode_signature(&sig).unwrap()).unwrap());
+    let (mut h, mut hl) = (core::ptr::null_mut(), 0usize);
+    assert_eq!(
+        unsafe { aw_evm_pending_finalize(a, pending, back, &mut h, &mut hl) },
+        AW_OK
+    );
+    let hex = String::from_utf8(take(h, hl)).unwrap();
+    assert_eq!(hex.len(), 2 + 130, "{hex}");
+    assert!(hex.ends_with("1b") || hex.ends_with("1c"));
+    unsafe { aw_ur_decoder_free(back) };
+    unsafe { aw_evm_pending_free(pending) };
+    // personal_sign
+    let (rc, p, json) = build(0, b"Sign in to example.org", 0);
+    assert_eq!(rc, AW_OK);
+    assert!(json.contains("Sign in to example.org"), "{json}");
+    unsafe { aw_evm_pending_free(p) };
+    // 链 ID 不符、格式不严谨、未知类型、空文本：观察机上就拒绝
+    assert_eq!(build(1, typed, 1).0, AW_ERR_EVM_REJECT_BASE - 5);
+    assert_eq!(build(1, b"{}", 0).0, AW_ERR_EVM_REJECT_BASE - 1);
+    assert_eq!(build(2, b"x", 0).0, AW_ERR_BAD_ARGUMENT);
+    assert_eq!(build(0, b"", 0).0, AW_ERR_BAD_ARGUMENT);
+    unsafe { aw_evm_free(a) };
+}

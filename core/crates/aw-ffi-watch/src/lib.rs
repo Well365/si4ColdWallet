@@ -20,8 +20,9 @@ use bitcoin::{Address, Transaction};
 aw_ffi_common::define_common_ffi!();
 
 pub mod evm;
+pub mod evm_message;
 
-pub const AW_WATCH_ABI_VERSION: u32 = 2;
+pub const AW_WATCH_ABI_VERSION: u32 = 3;
 const MAX_UTXO_BLOB: usize = 4 * 1024 * 1024;
 const MAX_PSBT: usize = 512 * 1024;
 

@@ -3,7 +3,7 @@ import Foundation
 
 /// 观察机 Rust 核心的 Swift 封装（只含公钥与交易构造，不含任何私钥代码）。
 enum WatchCore {
-    static let expectedABI: UInt32 = 2
+    static let expectedABI: UInt32 = 3
 
     struct Failure: Error {
         let code: Int32
@@ -19,7 +19,10 @@ enum WatchCore {
             case AW_ERR_EVM_REJECT_BASE - 12: return "签名无效或不属于本账户，拒绝"
             case AW_ERR_EVM_REJECT_BASE - 13: return "签名机返回的签名与本次请求不对应，拒绝"
             case AW_ERR_EVM_REJECT_BASE - 6: return "账户不是以太坊账户（m/44'/60'/0'）"
-            case AW_ERR_EVM_REJECT_BASE - 1: return "数据无法解析（账户二维码类型不对？）"
+            case AW_ERR_EVM_REJECT_BASE - 1: return "数据无法解析：二维码类型不对，或 JSON 不严谨（重复键、多余或缺少字段、数值越界、引号被输入法改成中文引号等）"
+            case AW_ERR_EVM_REJECT_BASE - 2: return "不支持的数据类型"
+            case AW_ERR_EVM_REJECT_BASE - 5: return "结构化数据里的链 ID 与所选网络不一致"
+            case AW_ERR_EVM_REJECT_BASE - 16: return "内容超长（单个字段超过 1024 字节、消息超过 4096 字节或结构太复杂），签名机无法完整显示"
             default: return "错误 \(code)"
             }
         }

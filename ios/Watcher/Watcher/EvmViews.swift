@@ -115,6 +115,7 @@ struct EvmAccountView: View {
                 } else {
                     Text("节点地址无效（必须是 https）").foregroundStyle(.red)
                 }
+                NavigationLink("签名消息（personal_sign / EIP-712）") { EvmMessageView(account: account, network: network) }
             }
             Section("自定义节点（可选）") {
                 TextField("链ID=https://…（每行一条）", text: $rpcOverrides, axis: .vertical)
@@ -279,6 +280,116 @@ struct EvmSignedView: View {
             error = "广播失败：\(e.message)"
         } catch {
             self.error = "广播失败：\(error.localizedDescription)"
+        }
+    }
+}
+
+/// 发起消息签名：粘贴 dApp 给出的消息或 eth_signTypedData_v4 JSON，生成请求给签名机扫描
+struct EvmMessageView: View {
+    let account: EvmAccount
+    let network: EvmNetwork
+    @State private var typed = true
+    @State private var text = ""
+    @State private var bindChain = true
+    @State private var pending: EvmPending?
+    @State private var frames: URFrames?
+    @State private var error: String?
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("类型", selection: $typed) {
+                    Text("结构化签名（EIP-712）").tag(true)
+                    Text("消息（personal_sign）").tag(false)
+                }
+                .pickerStyle(.segmented)
+                TextField(typed ? "粘贴 eth_signTypedData_v4 的 JSON" : "要签名的消息", text: $text, axis: .vertical)
+                    .lineLimit(4...12)
+                    .keyboardType(typed ? .asciiCapable : .default)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .font(.system(.caption, design: .monospaced))
+                HStack {
+                    Button("从剪贴板粘贴") { text = UIPasteboard.general.string ?? "" }
+                    Spacer()
+                    Button("清空", role: .destructive) {
+                        text = ""
+                        pending = nil
+                        frames = nil
+                        error = nil
+                    }
+                }
+                .buttonStyle(.borderless)
+                if typed { Toggle("核对链 ID 是否为 \(network.name)", isOn: $bindChain) }
+                Button("生成签名请求") { build() }.bold().disabled(text.isEmpty)
+            } footer: {
+                Text("观察机先用与签名机相同的规则检查：格式不严谨、链 ID 不符、超长的内容在这里就会被拒。")
+            }
+            if let pending, let frames {
+                Section("签名机将显示（请逐行对照）：\(pending.display.title)") {
+                    ForEach(pending.display.rows) { r in LabeledContent(r.label, value: r.value) }
+                    ForEach(pending.display.warnings) { w in Text(w.text).foregroundStyle(w.level == "info" ? Color.secondary : Color.red) }
+                }
+                Section("待签请求：请用签名机扫描") {
+                    AnimatedQRView(source: frames)
+                    NavigationLink("扫描签名机返回的签名") { EvmMessageSignedView(pending: pending) }
+                }
+            }
+            if let error { Section { Text(error).foregroundStyle(.red) } }
+        }
+        .navigationTitle("消息签名")
+    }
+
+    private func build() {
+        do {
+            let p = try account.buildMessage(typed: typed, text: text,
+                                             chainId: typed && bindChain ? network.chainId : 0)
+            frames = try p.frames()
+            pending = p
+            error = nil
+        } catch let f as WatchCore.Failure {
+            pending = nil
+            error = f.message
+        } catch {
+            self.error = "\(error.localizedDescription)"
+        }
+    }
+}
+
+/// 扫描签名机返回的签名；核对它确实来自本地址后显示，可复制回 dApp
+struct EvmMessageSignedView: View {
+    let pending: EvmPending
+    @State private var scan = URScan()
+    @State private var progress = (got: 0, total: 0)
+    @State private var signature: String?
+    @State private var error: String?
+
+    var body: some View {
+        VStack(spacing: 12) {
+            if let signature {
+                Text("签名已核对：确实由本地址签出").font(.headline).foregroundStyle(.green)
+                Text(signature).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+            } else {
+                QRScannerView { text in receive(text) }
+                    .frame(height: 360)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                if progress.total > 0 { ProgressView(value: Double(progress.got), total: Double(progress.total)) }
+            }
+            if let error { Text(error).foregroundStyle(.red) }
+        }
+        .padding()
+        .navigationTitle("签名结果")
+    }
+
+    private func receive(_ text: String) {
+        do {
+            let done = try scan.receive(text)
+            progress = scan.progress
+            if done { signature = try pending.finalize(scan: scan) }
+        } catch let f as WatchCore.Failure {
+            error = f.message
+            scan = URScan()
+        } catch {
+            self.error = "\(error)"
         }
     }
 }

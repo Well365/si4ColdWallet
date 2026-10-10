@@ -71,6 +71,24 @@ final class EvmAccount {
         let display = try JSONDecoder().decode(DisplayModel.self, from: Data(WatchCore.takeBuffer(jp, jl)))
         return EvmPending(raw: pending, account: self, display: display)
     }
+
+    /// 消息签名请求：`typed` 为 true 时 `text` 是 EIP-712 JSON，否则是 personal_sign 文本。
+    /// `chainId` 为 0 表示不核对链。观察机先用与签名机相同的规则检查。
+    func buildMessage(typed: Bool, text: String, chainId: UInt64) throws -> EvmPending {
+        let bytes = Array(text.utf8)
+        let uuid = UUID().uuid
+        let rid = withUnsafeBytes(of: uuid) { Array($0) }
+        var pending: OpaquePointer?
+        var jp: UnsafeMutablePointer<UInt8>?
+        var jl = 0
+        let rc = bytes.withUnsafeBufferPointer { b in
+            aw_evm_build_message(raw, 0, typed ? 1 : 0, b.baseAddress, b.count, chainId, rid, &pending, &jp, &jl)
+        }
+        try WatchCore.check(rc)
+        guard let pending else { throw WatchCore.Failure(code: AW_ERR_STATE) }
+        let display = try JSONDecoder().decode(DisplayModel.self, from: Data(WatchCore.takeBuffer(jp, jl)))
+        return EvmPending(raw: pending, account: self, display: display)
+    }
 }
 
 @MainActor
@@ -97,7 +115,7 @@ final class EvmPending {
         return URFrames(raw: enc)
     }
 
-    /// 核对签名机返回的签名，返回可广播的 "0x…" 原始交易
+    /// 核对签名机返回的签名：交易返回可广播的 "0x…" 原始交易，消息返回 "0x…" 65 字节签名
     func finalize(scan: URScan) throws -> String {
         var p: UnsafeMutablePointer<UInt8>?
         var l = 0
