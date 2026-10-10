@@ -239,6 +239,10 @@ def main():
         print(f"TRON m/44'/195'/0'/0/{i} {b58check(bytes([0x41]) + eth_raw(bip32_path(seed, [44 + H, 195 + H, H, 0, i])))}")
     for i in (0, 1):
         print(f"SOL  m/44'/501'/{i}'/0'  {b58(ed_public(slip10_ed25519(seed, [44, 501, i, 0])[0]))}")
+    # Ledger Live 的另外两种 Solana 方案（决策 D34）：solanaSub 44'/501'/<account>'，solanaMain 44'/501'
+    for i in (0, 1):
+        print(f"SOL  m/44'/501'/{i}'     {b58(ed_public(slip10_ed25519(seed, [44, 501, i])[0]))}  (Ledger Live)")
+    print(f"SOL  m/44'/501'         {b58(ed_public(slip10_ed25519(seed, [44, 501])[0]))}  (Ledger Live 主账户)")
     for i in (0, 1):
         pk = ed_public(slip10_ed25519(seed, [44, 397, i])[0])
         print(f"NEAR m/44'/397'/{i}'     {pk.hex()}  ed25519:{b58(pk)}")

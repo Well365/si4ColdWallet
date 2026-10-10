@@ -114,3 +114,8 @@ We derive along the default paths of mainstream wallets such as Phantom, TronLin
 1. Return to EIP-712 (structured hashing, recognition of Permit-type requests, the Watcher's entry point for message signing).
 2. Transaction review and signing for DOGE, TRON, SOL and NEAR (one after another; each chain's "dangerous operations" are refused by default or given a strong warning, per `docs/en/01`).
 3. The Watcher imports accounts on these chains and queries balances.
+
+## 8. Addendum (2026-10-11): Solana gained an "account type"
+
+After restoring a Ledger mnemonic, the Solana address differed from the one in Ledger Live — not a miscalculation, but **the same key walking a different road in a different wallet**. Ledger Live keeps three roads for Solana: `m/44'/501'` (the earliest main account), `m/44'/501'/index'`, and `m/44'/501'/index'/0'` (the same as Phantom and Trezor). The Signer used to walk only the last one. With SOL selected you can now switch between "Phantom / Trezor", "Ledger Live" and "Ledger main account"; all three addresses can be displayed and checked by QR, and each is cross-checked by the independent Python implementation (decision D34).
+

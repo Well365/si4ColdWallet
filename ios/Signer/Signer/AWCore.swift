@@ -168,11 +168,11 @@ final class SignerSession {
         try AWCore.check(rc)
     }
 
-    /// 第 index 个收款地址（Rust 生成）
-    func address(chain: AddressChain, index: UInt32) throws -> AddressInfo {
+    /// 第 index 个收款地址（Rust 生成）；scheme 是账户类型，只对 Solana 有意义（SolScheme，决策 D34）
+    func address(chain: AddressChain, scheme: UInt32 = 0, index: UInt32) throws -> AddressInfo {
         var ptr: UnsafeMutablePointer<UInt8>?
         var len = 0
-        try AWCore.check(aw_session_address(raw, chain.rawValue, index, &ptr, &len))
+        try AWCore.check(aw_session_address(raw, chain.rawValue, scheme, index, &ptr, &len))
         return try JSONDecoder().decode(AddressInfo.self, from: Data(AWCore.takeBuffer(ptr, len)))
     }
 
@@ -247,6 +247,24 @@ enum AddressChain: UInt32, CaseIterable, Identifiable {
 
     /// Solana / NEAR 只预先计算了前 20 个账户
     var maxIndex: UInt32 { self == .sol || self == .near ? 19 : 999 }
+}
+
+/// Solana 的账户类型（与 aw_session_address 的 scheme 参数一致，决策 D34）：同一助记词在不同钱包里路径不同
+enum SolScheme: UInt32, CaseIterable, Identifiable {
+    case phantom = 0, ledgerLive = 1, ledgerMain = 2
+
+    var id: UInt32 { rawValue }
+
+    var title: String {
+        switch self {
+        case .phantom: return "Phantom / Trezor"
+        case .ledgerLive: return "Ledger Live"
+        case .ledgerMain: return "Ledger 主账户"
+        }
+    }
+
+    /// 主账户方案只有一个账户
+    var maxIndex: UInt32 { self == .ledgerMain ? 0 : 19 }
 }
 
 struct AddressInfo: Decodable {

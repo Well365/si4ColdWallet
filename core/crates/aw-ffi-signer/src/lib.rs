@@ -425,6 +425,8 @@ pub unsafe extern "C" fn aw_session_export_account(
 
 /// 第 `index` 个收款地址（通用 JSON：chain、path、address、note）。
 /// `chain`：0 BTC、1 EVM、2 SOL、3 DOGE、4 TRON、5 NEAR；Solana / NEAR 的 index 须小于 20。
+/// `scheme`：账户类型（D34）——SOL 为 0 Phantom/Solflare/Trezor `m/44'/501'/i'/0'`、1 Ledger Live `m/44'/501'/i'`、
+/// 2 Ledger Live 主账户 `m/44'/501'`（index 必须为 0）；其他链必须为 0。
 ///
 /// # Safety
 /// `s` 为有效会话；输出指针有效。
@@ -432,6 +434,7 @@ pub unsafe extern "C" fn aw_session_export_account(
 pub unsafe extern "C" fn aw_session_address(
     s: *const AwSession,
     chain: u32,
+    scheme: u32,
     index: u32,
     out_ptr: *mut *mut u8,
     out_len: *mut usize,
@@ -448,7 +451,7 @@ pub unsafe extern "C" fn aw_session_address(
         let evm = &sess.evm.as_ref().ok_or(AW_ERR_STATE)?.account;
         let addrs = sess.addresses.as_ref().ok_or(AW_ERR_STATE)?;
         let j = addrs
-            .describe(secp, btc, evm, chain, index)
+            .describe(secp, btc, evm, chain, scheme, index)
             .ok_or(AW_ERR_BAD_ARGUMENT)?;
         Ok(j.to_string_compact().into_bytes())
     })();

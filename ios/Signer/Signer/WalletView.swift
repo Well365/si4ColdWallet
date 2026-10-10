@@ -210,6 +210,7 @@ struct ReviewView: View {
 struct AddressesView: View {
     let session: SignerSession
     @State private var chain = AddressChain.btc
+    @State private var scheme = SolScheme.phantom
     @State private var index: UInt32 = 0
     @State private var info: AddressInfo?
     @State private var error: String?
@@ -221,7 +222,14 @@ struct AddressesView: View {
                     ForEach(AddressChain.allCases) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                Stepper("序号 #\(index)", value: $index, in: 0...chain.maxIndex)
+                if chain == .sol {
+                    // 同一助记词在 Phantom / Trezor 与 Ledger Live 里的 Solana 地址不同（决策 D34）
+                    Picker("账户类型", selection: $scheme) {
+                        ForEach(SolScheme.allCases) { Text($0.title).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                }
+                Stepper("序号 #\(index)", value: $index, in: 0...maxIndex)
             }
             if let info {
                 Section(info.chain) {
@@ -241,9 +249,12 @@ struct AddressesView: View {
             }
         }
         .navigationTitle("收款地址")
-        .onChange(of: chain) { _, c in if index > c.maxIndex { index = 0 } }
-        .task(id: "\(chain.rawValue)-\(index)") { load() }
+        .onChange(of: chain) { _, _ in if index > maxIndex { index = 0 } }
+        .onChange(of: scheme) { _, _ in if index > maxIndex { index = 0 } }
+        .task(id: "\(chain.rawValue)-\(scheme.rawValue)-\(index)") { load() }
     }
+
+    private var maxIndex: UInt32 { chain == .sol ? scheme.maxIndex : chain.maxIndex }
 
     /// 只显示网址文字（verbatim：不解析成链接，不能点击）；签名机不联网
     @ViewBuilder private func explorers(_ list: [ExplorerLink]) -> some View {
@@ -262,7 +273,7 @@ struct AddressesView: View {
 
     private func load() {
         do {
-            info = try session.address(chain: chain, index: index)
+            info = try session.address(chain: chain, scheme: chain == .sol ? scheme.rawValue : 0, index: index)
             error = nil
         } catch let f as AWCore.Failure {
             info = nil

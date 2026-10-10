@@ -397,14 +397,15 @@ fn mnemonic_and_passphrase_cleared_after_unlock() {
 #[test]
 fn addresses_for_all_chains() {
     let s = unlocked(); // 测试网
-    let get = |chain: u32, index: u32| -> Result<String, i32> {
+    let get_scheme = |chain: u32, scheme: u32, index: u32| -> Result<String, i32> {
         let (mut p, mut l) = (core::ptr::null_mut(), 0usize);
-        let rc = unsafe { aw_session_address(s, chain, index, &mut p, &mut l) };
+        let rc = unsafe { aw_session_address(s, chain, scheme, index, &mut p, &mut l) };
         if rc != AW_OK {
             return Err(rc);
         }
         Ok(String::from_utf8(take(p, l)).unwrap())
     };
+    let get = |chain: u32, index: u32| get_scheme(chain, 0, index);
     // 与 tools/testvectors/chain_addresses.py（独立 Python 实现）一致
     let btc = get(0, 0).unwrap();
     assert!(btc.contains("tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl"));
@@ -431,8 +432,32 @@ fn addresses_for_all_chains() {
         "{near}"
     );
     assert!(near.contains("ed25519:6j4b6zUaty6fD1awqcGCCU9JYGCWYUgdJhQrzfZhqE25"));
+    // D34：Solana 的 Ledger Live 两种方案（与 Python 向量一致），路径与账户类型都要显示
+    let ll = get_scheme(2, 1, 0).unwrap();
+    assert!(
+        ll.contains("GjJyeC1r2RgkuoCWMyPYkCWSGSGLcz266EaAkLA27AhL"),
+        "{ll}"
+    );
+    assert!(
+        ll.contains(r#""path":"m/44'/501'/0'""#) && ll.contains("Ledger Live"),
+        "{ll}"
+    );
+    assert!(get_scheme(2, 1, 1)
+        .unwrap()
+        .contains("ANf3TEKFL6jPWjzkndo4CbnNdUNkBk4KHPggJs2nu8Xi"));
+    let main = get_scheme(2, 2, 0).unwrap();
+    assert!(
+        main.contains("D2PPQSYFe83nDzk96FqGumVU8JA7J8vj2Rhjc2oXzEi5"),
+        "{main}"
+    );
+    assert!(main.contains(r#""path":"m/44'/501'""#), "{main}");
+    // 主账户方案只有一个账户；未知方案；其他链不接受非零方案
+    assert_eq!(get_scheme(2, 2, 1), Err(AW_ERR_BAD_ARGUMENT));
+    assert_eq!(get_scheme(2, 3, 0), Err(AW_ERR_BAD_ARGUMENT));
+    assert_eq!(get_scheme(0, 1, 0), Err(AW_ERR_BAD_ARGUMENT));
     // 越界与未知链
     assert_eq!(get(2, 20), Err(AW_ERR_BAD_ARGUMENT));
+    assert_eq!(get_scheme(2, 1, 20), Err(AW_ERR_BAD_ARGUMENT));
     assert_eq!(get(9, 0), Err(AW_ERR_BAD_ARGUMENT));
     assert_eq!(get(1, 0x8000_0000), Err(AW_ERR_BAD_ARGUMENT));
     unsafe { aw_session_free(s) };
@@ -440,7 +465,7 @@ fn addresses_for_all_chains() {
     let fresh = aw_session_new();
     let (mut p, mut l) = (core::ptr::null_mut(), 0usize);
     assert_eq!(
-        unsafe { aw_session_address(fresh, 0, 0, &mut p, &mut l) },
+        unsafe { aw_session_address(fresh, 0, 0, 0, &mut p, &mut l) },
         AW_ERR_STATE
     );
     unsafe { aw_session_free(fresh) };
@@ -600,7 +625,7 @@ fn fingerprint_mismatch_leaves_no_usable_account() {
     // 之前解锁得到的账户已全部丢弃
     let (mut p, mut l) = (core::ptr::null_mut(), 0usize);
     assert_eq!(
-        unsafe { aw_session_address(s, 0, 0, &mut p, &mut l) },
+        unsafe { aw_session_address(s, 0, 0, 0, &mut p, &mut l) },
         AW_ERR_STATE
     );
     let mut enc = core::ptr::null_mut();

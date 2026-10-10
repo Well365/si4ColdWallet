@@ -91,6 +91,26 @@ fn addresses_match_independent_python_implementation() {
     };
     assert_eq!(sol(0), "HAgk14JpMQLgt6rVgv7cBQFJWFto5Dqxi472uT3DKpqk");
     assert_eq!(sol(1), "Hh8QwFUA6MtVu1qAoq12ucvFHNwCcVTV7hpWjeY1Hztb");
+    // D34：Ledger Live 的两种 Solana 方案 m/44'/501'/i'（solanaSub）与 m/44'/501'（solanaMain）
+    let sol_scheme = |s: aw_chain_sol::Scheme, i| {
+        aw_chain_sol::address(&ed.derive(&s.account_path(i)).unwrap().public_key().unwrap())
+    };
+    assert_eq!(
+        sol_scheme(aw_chain_sol::Scheme::Phantom, 0),
+        "HAgk14JpMQLgt6rVgv7cBQFJWFto5Dqxi472uT3DKpqk"
+    );
+    assert_eq!(
+        sol_scheme(aw_chain_sol::Scheme::LedgerLive, 0),
+        "GjJyeC1r2RgkuoCWMyPYkCWSGSGLcz266EaAkLA27AhL"
+    );
+    assert_eq!(
+        sol_scheme(aw_chain_sol::Scheme::LedgerLive, 1),
+        "ANf3TEKFL6jPWjzkndo4CbnNdUNkBk4KHPggJs2nu8Xi"
+    );
+    assert_eq!(
+        sol_scheme(aw_chain_sol::Scheme::LedgerMain, 0),
+        "D2PPQSYFe83nDzk96FqGumVU8JA7J8vj2Rhjc2oXzEi5"
+    );
     let near = |i| {
         ed.derive(&aw_chain_near::account_path(i))
             .unwrap()

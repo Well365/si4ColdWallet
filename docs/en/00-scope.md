@@ -22,7 +22,7 @@ The two devices exchange data **only** via on-screen QR codes + camera (animated
 | BTC | secp256k1 (ECDSA + Schnorr) | BIP84 `m/84'/0'/0'`, BIP86 `m/86'/0'/0'` | PSBT; compatible with Sparrow |
 | DOGE | secp256k1 | BIP44 `m/44'/3'/0'` | Legacy transactions (no SegWit); the Signer must be given the previous transactions to verify amounts |
 | ETH / BNB Chain / other EVM | secp256k1 + Keccak-256 | `m/44'/60'/0'/0/i` | EIP-155 / EIP-1559 / EIP-712; compatible with ERC-4527 |
-| SOL | ed25519 | SLIP-10 `m/44'/501'/i'/0'` | legacy and v0 messages |
+| SOL | ed25519 | SLIP-10 `m/44'/501'/i'/0'` (Phantom / Solflare / Trezor); Ledger Live's `m/44'/501'/i'` and `m/44'/501'` are also supported (D34) | legacy and v0 messages |
 | NEAR | ed25519 | SLIP-10 `m/44'/397'/0'` | borsh serialization |
 | TRON | secp256k1 + Keccak-256 | `m/44'/195'/0'/0/i` | protobuf; USDT-TRC20 |
 

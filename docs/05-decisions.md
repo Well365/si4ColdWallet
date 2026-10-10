@@ -231,3 +231,11 @@
   9. 顶层标题为"疑似 Safe 多签执行"并显示入口名：签名机只能按选择器识别，无法核实目标合约真的是 Safe。
 - **未覆盖**（明确告知）：Safe 的 4337 模块 `SafeOp`、EIP-1271 合约签名流程、其他模块的自定义入口、`SafeMessage` 类型数据。它们目前走"一切 EIP-712 结构化签名都是高风险"的通用规则（D29），不做语义解析。
 - 测试：`aw-chain-evm/src/{abi,review,typed_review}.rs` 单测（选择器与 keccak 比对、畸形编码、模块入口、结构不完整）；`aw-e2e/tests/evm_roundtrip.rs::{safe_bypass_paths_are_closed, safe_second_review_gaps_are_closed}`；两个 FFI crate 各有错误码序号固定测试。
+
+## D34 · Solana 地址支持 Ledger Live 的两种路径方案（2026-10-11，用户要求）
+
+- **背景**：用户用 Ledger 生成的助记词恢复后，Solana 地址与 Ledger Live 里的对不上。Ledger Live 的派生表（`libs/ledger-wallet-framework/src/derivation.ts`）为 Solana 列了三种方案并全部扫描：`solanaMain` = `44'/501'`（不可迭代，只有一个）、`solanaBip44Change` = `44'/501'/<account>'/0'`、`solanaSub` = `44'/501'/<account>'`。本机原来只实现 `m/44'/501'/i'/0'`（Phantom / Solflare / Trezor / Solana CLI 默认），所以在 Ledger Live 主账户或 `solanaSub` 下建的账户看不到。
+- **决定**：`aw-chain-sol` 增加 `Scheme { Phantom, LedgerLive, LedgerMain }`，三种路径全部强化；解锁时每种方案都预先派生（Phantom 与 Ledger Live 各 20 个账户，主账户 1 个），私钥随即清零。FFI `aw_session_address` 增加 `scheme` 参数（0 Phantom、1 Ledger Live、2 Ledger Live 主账户；其他链必须为 0，主账户方案 index 必须为 0），签名机地址页在选 SOL 时多一个"账户类型"选择，`chain` 字段带方案名，`note` 说明来源。默认仍是 Phantom 方案。
+- **验证**：独立 Python 实现 `tools/testvectors/chain_addresses.py` 增加两种方案的向量；`aw-e2e/tests/addresses.rs`、`aw-ffi-signer` 测试与之逐字比对；越界、未知方案、其他链带非零方案均返回 `AW_ERR_BAD_ARGUMENT`。
+- **未做**：Solana 交易签名（P2c）实现时，签名请求里的路径必须能表达三种方案，签名机按完整路径匹配；EVM 的 Ledger Live 方案 `m/44'/60'/N'/0/0`（第 1 个地址与本机相同，第 2 个起不同）与 MEW 旧方案 `m/44'/60'/0'/N` 暂不支持，需要时同样加"账户类型"。
+

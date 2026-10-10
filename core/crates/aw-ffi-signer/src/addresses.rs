@@ -3,7 +3,9 @@
 //! 解锁时只保存**公开信息**：BTC / EVM 的账户公钥已在会话中；DOGE、TRON 保存账户扩展公钥；
 //! Solana、NEAR 的 Ed25519 路径全部强化、不能由公钥继续派生，所以解锁时预先算好前 20 个账户的公钥，
 //! 派生用的私钥随即清零（交易签名在 P2c / P2d 实现时再按需派生）。
+//! Solana 有三种派生方案（Phantom / Ledger Live / Ledger Live 主账户，决策 D34），每种都预先算好。
 
+use aw_chain_sol::Scheme as SolScheme;
 use aw_common::explorer::{self, Chain};
 use aw_common::json::Json;
 use aw_common::secret::SecretBytes;
@@ -26,7 +28,8 @@ pub struct Addresses {
     testnet: bool,
     doge: Xpub,
     tron: Xpub,
-    sol: Vec<[u8; 32]>,
+    /// 按 `SolScheme::ALL` 的顺序，每种方案预先算好的账户公钥（主账户方案只有 1 个）
+    sol: Vec<Vec<[u8; 32]>>,
     near: Vec<[u8; 32]>,
 }
 
@@ -53,8 +56,13 @@ impl Addresses {
             testnet,
             doge: account_xpub(secp, master, aw_chain_btc::doge::coin_type(testnet))?,
             tron: account_xpub(secp, master, aw_chain_tron::COIN_TYPE)?,
-            sol: (0..ED_ACCOUNTS)
-                .map(|i| ed_pub(&aw_chain_sol::account_path(i)))
+            sol: SolScheme::ALL
+                .iter()
+                .map(|s| {
+                    (0..s.account_count(ED_ACCOUNTS))
+                        .map(|i| ed_pub(&s.account_path(i)))
+                        .collect::<Option<Vec<_>>>()
+                })
                 .collect::<Option<_>>()?,
             near: (0..ED_ACCOUNTS)
                 .map(|i| ed_pub(&aw_chain_near::account_path(i)))
@@ -75,15 +83,19 @@ impl Addresses {
         xpub.derive_pub(secp, &path).ok().map(|x| x.public_key)
     }
 
-    /// 第 index 个地址：(链名, 路径, 地址, 附加说明)
+    /// 第 index 个地址：(链名, 路径, 地址, 附加说明)。`scheme` 是账户类型：只有 Solana 有多种（D34），其他链必须为 0
     pub fn describe(
         &self,
         secp: &Secp256k1<All>,
         btc: &aw_chain_btc::Account,
         evm: &aw_chain_evm::Account,
         chain: u32,
+        scheme: u32,
         index: u32,
     ) -> Option<Json> {
+        if chain != CHAIN_SOL && scheme != 0 {
+            return None;
+        }
         let ed = |list: &Vec<[u8; 32]>| list.get(usize::try_from(index).ok()?).copied();
         let (name, path, address, note, kind) = match chain {
             CHAIN_BTC => (
@@ -105,13 +117,18 @@ impl Addresses {
                 "所有 EVM 链共用同一个地址".to_owned(),
                 Chain::Evm,
             ),
-            CHAIN_SOL => (
-                "Solana".to_owned(),
-                aw_chain_sol::path_string(index),
-                aw_chain_sol::address(&ed(&self.sol)?),
-                "与 Phantom、Solflare 默认路径一致".to_owned(),
-                Chain::Sol,
-            ),
+            CHAIN_SOL => {
+                let which = usize::try_from(scheme).ok()?;
+                let s = *SolScheme::ALL.get(which)?;
+                let pk = ed(self.sol.get(which)?)?;
+                (
+                    format!("Solana（{}）", s.label()),
+                    s.path_string(index),
+                    aw_chain_sol::address(&pk),
+                    s.note().to_owned(),
+                    Chain::Sol,
+                )
+            }
             CHAIN_DOGE => (
                 if self.testnet {
                     "Dogecoin 测试网"

@@ -20,7 +20,7 @@
 | BTC | secp256k1（ECDSA + Schnorr） | BIP84 `m/84'/0'/0'`、BIP86 `m/86'/0'/0'` | PSBT；兼容 Sparrow |
 | DOGE | secp256k1 | BIP44 `m/44'/3'/0'` | 旧式交易（无隔离见证），签名机必须拿到前序交易核对金额 |
 | ETH / BNB Chain / 其他 EVM | secp256k1 + Keccak-256 | `m/44'/60'/0'/0/i` | EIP-155 / EIP-1559 / EIP-712；兼容 ERC-4527 |
-| SOL | ed25519 | SLIP-10 `m/44'/501'/i'/0'` | legacy 与 v0 消息 |
+| SOL | ed25519 | SLIP-10 `m/44'/501'/i'/0'`（Phantom / Solflare / Trezor）；另支持 Ledger Live 的 `m/44'/501'/i'` 与 `m/44'/501'`（D34） | legacy 与 v0 消息 |
 | NEAR | ed25519 | SLIP-10 `m/44'/397'/0'` | borsh 序列化 |
 | TRON | secp256k1 + Keccak-256 | `m/44'/195'/0'/0/i` | protobuf；USDT-TRC20 |
 

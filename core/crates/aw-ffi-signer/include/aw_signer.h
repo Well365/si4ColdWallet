@@ -72,8 +72,10 @@ int32_t  aw_session_unlock(AwSession *s, uint8_t testnet, const uint8_t *rand32)
 uint32_t aw_session_fingerprint(const AwSession *s);
 /* 第 index 个收款地址，JSON：{chain, path, address, note, explorers:[{name, url}]}。
  * explorers 只用于显示（签名机不联网，网址由用户在别的设备上输入）。
- * chain：0 BTC、1 EVM（ETH/BNB…）、2 SOL、3 DOGE、4 TRON、5 NEAR；SOL / NEAR 的 index < 20 */
-int32_t  aw_session_address(const AwSession *s, uint32_t chain, uint32_t index, uint8_t **out_json, size_t *out_len);
+ * chain：0 BTC、1 EVM（ETH/BNB…）、2 SOL、3 DOGE、4 TRON、5 NEAR；SOL / NEAR 的 index < 20。
+ * scheme：账户类型（D34）。SOL：0 Phantom/Solflare/Trezor m/44'/501'/i'/0'、1 Ledger Live m/44'/501'/i'、
+ * 2 Ledger Live 主账户 m/44'/501'（index 必须为 0）；其他链必须为 0 */
+int32_t  aw_session_address(const AwSession *s, uint32_t chain, uint32_t scheme, uint32_t index, uint8_t **out_json, size_t *out_len);
 /* chain：0 = BTC（BIP84），1 = EVM（m/44'/60'/0'） */
 int32_t  aw_session_export_account(AwSession *s, uint32_t chain, AwUrEncoder **out);
 /* 请求来自已收齐的解码器：crypto-psbt（BTC）或 eth-sign-request（EVM）。
