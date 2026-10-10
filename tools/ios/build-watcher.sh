@@ -2,6 +2,7 @@
 # 构建观察机。与签名机共用供应链检查；观察机可以联网，所以不做签名机的 C4/C9 网络限制，
 # 但仍要求：只链接仓库内 Rust 静态库、零第三方包、沙箱编译。
 # 用法：tools/ios/build-watcher.sh [sim|device]
+#   device 构建的签名变量与 build-signer.sh 相同：AW_DEVELOPMENT_TEAM=<团队 ID>，首次加 AW_PROVISIONING_UPDATES=1
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
@@ -10,7 +11,9 @@ source tools/env.sh
 kind="${1:-sim}"
 case "$kind" in
   sim)    target=aarch64-apple-ios-sim; sdk=iphonesimulator; sign=(CODE_SIGNING_ALLOWED=NO) ;;
-  device) target=aarch64-apple-ios;     sdk=iphoneos;        sign=() ;;
+  device) target=aarch64-apple-ios;     sdk=iphoneos
+          sign=(DEVELOPMENT_TEAM="${AW_DEVELOPMENT_TEAM:?device 构建需要 AW_DEVELOPMENT_TEAM=<团队 ID>}")
+          if [ "${AW_PROVISIONING_UPDATES:-}" = 1 ]; then sign+=(-allowProvisioningUpdates); fi ;;
   *) echo "用法：$0 [sim|device]"; exit 2 ;;
 esac
 # Xcode 会以 777 权限创建 project.xcworkspace 等目录：先收紧，再由 C9 复核（P1 安全审查 LOW）

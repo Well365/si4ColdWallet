@@ -5,6 +5,9 @@
 #  3. 清空旧产物；xcodebuild 在清空环境变量的状态下运行；核对实际生效的链接参数
 #  4. 构建后再跑一遍全部检查（含产物）
 # 用法：tools/ios/build-signer.sh [sim|device]（默认 sim）
+#   device 构建用 Xcode 自动签名，需要 AW_DEVELOPMENT_TEAM=<团队 ID>；
+#   第一次为这个 bundle ID 生成描述文件时再加 AW_PROVISIONING_UPDATES=1（xcodebuild 会联网向 Apple 申请，
+#   之后描述文件留在本机，可以断网复用；正式发布构建不应带这个变量）
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
@@ -13,7 +16,9 @@ source tools/env.sh
 kind="${1:-sim}"
 case "$kind" in
   sim)    target=aarch64-apple-ios-sim; sdk=iphonesimulator; sign=(CODE_SIGNING_ALLOWED=NO) ;;
-  device) target=aarch64-apple-ios;     sdk=iphoneos;        sign=() ;;
+  device) target=aarch64-apple-ios;     sdk=iphoneos
+          sign=(DEVELOPMENT_TEAM="${AW_DEVELOPMENT_TEAM:?device 构建需要 AW_DEVELOPMENT_TEAM=<团队 ID>}")
+          if [ "${AW_PROVISIONING_UPDATES:-}" = 1 ]; then sign+=(-allowProvisioningUpdates); fi ;;
   *) echo "用法：$0 [sim|device]"; exit 2 ;;
 esac
 
