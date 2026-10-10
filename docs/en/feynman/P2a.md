@@ -22,7 +22,7 @@ The Signer can now also understand and sign the following on EVM chains such as 
 - Other ways of writing an approval are recognized as well: `increaseAllowance`, Permit2, DAI-style permit.
 - A Safe multisig `approveHash` amounts to "approving in advance a transaction whose contents you can't see", so the Signer refuses to sign it outright.
 
-**Message signing can deceive you too**: a web page asks you to "sign a login message". Some characters are invisible to the naked eye, or look exactly like English letters (for example the Cyrillic letter "а"), so the screen shows "example.org" while what you actually sign is a different domain. Now only characters on a whitelist (English letters, digits, common punctuation, Chinese) are displayed as text; everything else is displayed as hexadecimal. In addition, a "message" of exactly 32 bytes is very likely the hash of a transaction; signing it amounts to blind signing, so a high-risk warning is given.
+**Message signing can deceive you too**: a web page asks you to "sign a login message". Some characters are invisible to the naked eye, or look exactly like English letters (for example the Cyrillic letter "а"), so the screen shows "example.org" while what you actually sign is a different domain. Now only characters on a whitelist (English letters, digits, common punctuation, Chinese) are displayed as text; everything else is displayed as hexadecimal. In addition, a "message" of exactly 32 bytes is very likely the hash of a transaction; signing it amounts to blind signing, so it is now refused outright (see D33).
 
 **Both phones show the same content**: after the Watcher builds a transaction, it calls **the very same** review code as the Signer, so the content it displays is the same too. The user can compare the two phones line by line. If the Watcher has been tampered with but the Signer has not, the two sides won't match.
 
@@ -67,7 +67,7 @@ The Signer can now also understand and sign the following on EVM chains such as 
 | Safe DELEGATECALL, Safe `approveHash` | Refuse to sign |
 | Data type doesn't match the content (a typed transaction posing as a legacy transaction) | Refuse to sign |
 | Chain ID so large that EIP-155's v can't hold it | Refuse to sign at the review stage |
-| Unlimited / near-unlimited approvals, approvals on unknown contracts (possibly NFTs), Permit2, DAI permit, setApprovalForAll, unknown contract calls, contract deployment, 32-byte messages | High risk: the UI requires ticking the confirmation box, and Rust checks again as well |
+| Unlimited / near-unlimited approvals, approvals on unknown contracts (possibly NFTs), Permit2, DAI permit, setApprovalForAll, unknown contract calls, contract deployment | High risk: the UI requires ticking the confirmation box, and Rust checks again as well (messages of exactly 32 bytes are now refused outright, see D33) |
 | Watcher: request ID mismatch, tampered signature, a signature from another address, high s value, assembled result differs from the content to be signed, the hash returned by the node doesn't match the transaction | All rejected or reported as errors |
 
 ### 4.3 Independent review

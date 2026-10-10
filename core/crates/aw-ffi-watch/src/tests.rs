@@ -421,3 +421,34 @@ fn evm_message_requests() {
     assert_eq!(build(0, b"", 0).0, AW_ERR_BAD_ARGUMENT);
     unsafe { aw_evm_free(a) };
 }
+
+/// 与 aw-ffi-signer 的 evm_error_code 同一张表：序号固定，两边不得漂移（审计复审 #6/#9）
+#[test]
+fn evm_error_codes_match_signer_table() {
+    use aw_chain_evm::EvmError as E;
+    for (e, n) in [
+        (E::Parse, 1),
+        (E::Unsupported, 2),
+        (E::Eip7702, 3),
+        (E::NoReplayProtection, 4),
+        (E::ChainMismatch, 5),
+        (E::PathMismatch, 6),
+        (E::AddressMismatch, 7),
+        (E::DelegateCall, 8),
+        (E::Overflow, 9),
+        (E::Derivation, 10),
+        (E::SelfCheck, 11),
+        (E::BadSignature, 12),
+        (E::RequestMismatch, 13),
+        (E::BlindApproval, 14),
+        (E::NeedsConfirmation, 15),
+        (E::TooLong, 16),
+        (E::SafeAdmin, 17),
+    ] {
+        assert_eq!(
+            crate::evm::evm_code(e),
+            aw_ffi_common::AW_ERR_EVM_REJECT_BASE - n,
+            "{e:?}"
+        );
+    }
+}

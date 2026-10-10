@@ -67,6 +67,8 @@ pub enum EvmError {
     NeedsConfirmation,
     /// 待签内容里有超长字段，签名机无法完整显示，拒签（避免"太长看不完"变成盲签）
     TooLong,
+    /// Safe 多签对自身的管理调用（所有者 / 阈值 / 模块 / 守卫 / 回退处理器）：移交多签控制权，默认拒签（D33）
+    SafeAdmin,
 }
 
 impl From<rlp::RlpError> for EvmError {

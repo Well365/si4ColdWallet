@@ -355,20 +355,35 @@ fn fee_above_five_percent_is_a_danger_warning() {
     let s = setup_with(10_000, 60);
     let r = review(&s.secp, &s.signer.account, &s.psbt).unwrap();
     assert!(r.fee * 20 > r.external_total, "夹具前提：手续费 > 5%");
-    assert!(r.warnings.contains(&Warning::HighFeeRatio), "{:?}", r.warnings);
+    assert!(
+        r.warnings.contains(&Warning::HighFeeRatio),
+        "{:?}",
+        r.warnings
+    );
     assert!(r.to_display().has_danger(), "{:?}", r.to_display().warnings);
 
     // 5 sat/vB：约 705 聪（约 7%），旧的 10% 阈值不会告警，5% 必须告警
     let s = setup_with(10_000, 5);
     let r = review(&s.secp, &s.signer.account, &s.psbt).unwrap();
-    assert!(r.fee * 20 > r.external_total && r.fee * 10 < r.external_total, "夹具前提：5% < 手续费 < 10%");
-    assert!(r.warnings.contains(&Warning::HighFeeRatio), "{:?}", r.warnings);
+    assert!(
+        r.fee * 20 > r.external_total && r.fee * 10 < r.external_total,
+        "夹具前提：5% < 手续费 < 10%"
+    );
+    assert!(
+        r.warnings.contains(&Warning::HighFeeRatio),
+        "{:?}",
+        r.warnings
+    );
 
     // 付 100,000 聪、2 sat/vB：远低于 5%，不得告警
     let s = setup_with(100_000, 2);
     let r = review(&s.secp, &s.signer.account, &s.psbt).unwrap();
     assert!(r.fee * 20 < r.external_total, "夹具前提：手续费 < 5%");
-    assert!(!r.warnings.contains(&Warning::HighFeeRatio), "{:?}", r.warnings);
+    assert!(
+        !r.warnings.contains(&Warning::HighFeeRatio),
+        "{:?}",
+        r.warnings
+    );
 }
 
 #[test]
@@ -384,8 +399,11 @@ fn self_transfer_fee_ratio_is_still_checked() {
         index: 0,
     }];
     // 付给自己的收款地址 #2：没有对外付款，但 60 sat/vB 的手续费仍然超过 5%
-    let own = Address::from_script(&watch.script_for(&secp, false, 2).unwrap(), Network::Testnet)
-        .unwrap();
+    let own = Address::from_script(
+        &watch.script_for(&secp, false, 2).unwrap(),
+        Network::Testnet,
+    )
+    .unwrap();
     let (mut psbt, _) = build_payment(&secp, &watch, &utxos, &own, 10_000, 60, 0).unwrap();
     // 观察机把自己的收款地址当作普通收款人；这里按找零输出的写法补上派生信息，签名机才会把它识别为本钱包
     let (fp, change_path) = psbt.outputs[1]
@@ -405,7 +423,11 @@ fn self_transfer_fee_ratio_is_still_checked() {
     let r = review(&secp, &signer.account, &psbt).unwrap();
     assert_eq!(r.external_total, 0);
     assert!(r.warnings.contains(&Warning::SelfTransferOnly));
-    assert!(r.warnings.contains(&Warning::HighFeeRatio), "{:?}", r.warnings);
+    assert!(
+        r.warnings.contains(&Warning::HighFeeRatio),
+        "{:?}",
+        r.warnings
+    );
     assert!(r.to_display().has_danger());
 }
 
@@ -415,12 +437,99 @@ fn absurd_absolute_fee_is_flagged() {
     // 付 1,000 聪、710 sat/vB：需要两个输入，手续费约 14.8 万聪，超过绝对值上限
     let s = setup_with(1_000, 710);
     let r = review(&s.secp, &s.signer.account, &s.psbt).unwrap();
-    assert!(r.fee > HIGH_FEE_ABSOLUTE_SAT, "夹具前提：手续费 {} 应超过 {}", r.fee, HIGH_FEE_ABSOLUTE_SAT);
-    assert!(r.warnings.contains(&Warning::HighFeeAbsolute), "{:?}", r.warnings);
+    assert!(
+        r.fee > HIGH_FEE_ABSOLUTE_SAT,
+        "夹具前提：手续费 {} 应超过 {}",
+        r.fee,
+        HIGH_FEE_ABSOLUTE_SAT
+    );
+    assert!(
+        r.warnings.contains(&Warning::HighFeeAbsolute),
+        "{:?}",
+        r.warnings
+    );
     assert!(r.to_display().has_danger());
     // 现有的 600 sat/vB 用例手续费约 8.5 万聪，不应触发绝对值告警
     let s = setup_with(10_000, 600);
     let r = review(&s.secp, &s.signer.account, &s.psbt).unwrap();
     assert!(r.fee < HIGH_FEE_ABSOLUTE_SAT, "夹具前提：{}", r.fee);
     assert!(!r.warnings.contains(&Warning::HighFeeAbsolute));
+}
+
+/// 输出总额为 0（手续费 100%）必须告警；0 聪的外部输出不能被说成"转给自己"
+#[test]
+fn zero_value_outputs_do_not_bypass_fee_or_self_transfer_checks() {
+    let s = setup_with(10_000, 2);
+    // 全部输出清零：手续费 = 全部输入
+    let mut p = s.psbt.clone();
+    for o in &mut p.unsigned_tx.output {
+        o.value = Amount::ZERO;
+    }
+    let r = review(&s.secp, &s.signer.account, &p).unwrap();
+    assert_eq!(r.fee, r.input_total);
+    assert!(
+        r.warnings.contains(&Warning::HighFeeRatio),
+        "{:?}",
+        r.warnings
+    );
+    assert!(r.to_display().has_danger());
+    // 只把对外输出清零：仍是对外付款（粉尘），不是"转给自己"
+    let mut p = s.psbt.clone();
+    let ext = r
+        .outputs
+        .iter()
+        .position(|o| o.kind == OutputKind::External)
+        .unwrap();
+    p.unsigned_tx.output[ext].value = Amount::ZERO;
+    let r = review(&s.secp, &s.signer.account, &p).unwrap();
+    assert!(
+        !r.warnings.contains(&Warning::SelfTransferOnly),
+        "{:?}",
+        r.warnings
+    );
+    assert!(r.warnings.contains(&Warning::DustOutput));
+    assert_ne!(r.to_display().title, "转给自己");
+}
+
+/// D32 反向用例：手续费很低的自转只有"转给自己"的提示，不触发比例或绝对值告警
+#[test]
+fn low_fee_self_transfer_is_not_flagged() {
+    let secp = Secp256k1::new();
+    let signer = signer(&secp);
+    let watch = signer.account.clone();
+    let funding = funding_tx(&watch, &secp);
+    let utxos = vec![Utxo {
+        prev_tx: funding,
+        vout: 0,
+        change: false,
+        index: 0,
+    }];
+    let own = Address::from_script(
+        &watch.script_for(&secp, false, 2).unwrap(),
+        Network::Testnet,
+    )
+    .unwrap();
+    let (mut psbt, _) = build_payment(&secp, &watch, &utxos, &own, 10_000, 1, 0).unwrap();
+    let (fp, change_path) = psbt.outputs[1]
+        .bip32_derivation
+        .values()
+        .next()
+        .map(|(fp, path)| (*fp, path.clone()))
+        .unwrap();
+    let mut comps: Vec<bitcoin::bip32::ChildNumber> = change_path.into_iter().copied().collect();
+    let n = comps.len();
+    comps[n - 2] = bitcoin::bip32::ChildNumber::from_normal_idx(0).unwrap();
+    comps[n - 1] = bitcoin::bip32::ChildNumber::from_normal_idx(2).unwrap();
+    let own_pk = watch.derive_pubkey(&secp, false, 2).unwrap().0;
+    psbt.outputs[0]
+        .bip32_derivation
+        .insert(own_pk, (fp, bitcoin::bip32::DerivationPath::from(comps)));
+    let r = review(&secp, &signer.account, &psbt).unwrap();
+    assert!(r.warnings.contains(&Warning::SelfTransferOnly));
+    assert!(
+        !r.warnings.contains(&Warning::HighFeeRatio)
+            && !r.warnings.contains(&Warning::HighFeeAbsolute),
+        "{:?}",
+        r.warnings
+    );
 }

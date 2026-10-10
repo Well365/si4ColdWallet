@@ -619,3 +619,35 @@ fn fingerprint_mismatch_leaves_no_usable_account() {
     assert!(unsafe { &*s }.expected_fingerprint.is_none());
     unsafe { aw_session_free(s) };
 }
+
+/// EVM 拒签原因的错误码序号固定：Swift 文案表（AWCore.swift）与观察机（aw-ffi-watch）按同一序号解释，
+/// 新增变体必须同时改两个 FFI crate 与两张 Swift 表（审计复审 #6/#9）
+#[test]
+fn evm_error_codes_are_pinned() {
+    use aw_chain_evm::EvmError as E;
+    for (e, n) in [
+        (E::Parse, 1),
+        (E::Unsupported, 2),
+        (E::Eip7702, 3),
+        (E::NoReplayProtection, 4),
+        (E::ChainMismatch, 5),
+        (E::PathMismatch, 6),
+        (E::AddressMismatch, 7),
+        (E::DelegateCall, 8),
+        (E::Overflow, 9),
+        (E::Derivation, 10),
+        (E::SelfCheck, 11),
+        (E::BadSignature, 12),
+        (E::RequestMismatch, 13),
+        (E::BlindApproval, 14),
+        (E::TooLong, 16),
+        (E::SafeAdmin, 17),
+    ] {
+        assert_eq!(evm_error_code(e), AW_ERR_EVM_REJECT_BASE - n, "{e:?}");
+    }
+    // 签名机侧"需要勾选高风险确认"不是拒签，走专用错误码（序号 15 在观察机侧保留）
+    assert_eq!(
+        evm_error_code(E::NeedsConfirmation),
+        AW_ERR_NEEDS_CONFIRMATION
+    );
+}

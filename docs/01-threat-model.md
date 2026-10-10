@@ -51,8 +51,8 @@
 
 | 链 | 默认拒签 | 强警告 |
 |---|---|---|
-| BTC / DOGE | 找零地址不属于本钱包 | 手续费超过金额 5% 或绝对值异常；DOGE 缺前序交易 → 拒签 |
-| EVM | EIP-7702 授权；Safe `DELEGATECALL` | 无限额 approve、permit/permit2、setApprovalForAll；未知合约调用 |
+| BTC / DOGE | 找零地址不属于本钱包；DOGE 缺前序交易 | 手续费超过付款金额 5%（全部转回自己时按全部输出计）或绝对值超过 0.001 BTC（D32）；0 聪对外输出不改变判定 |
+| EVM | EIP-7702 授权；Safe `DELEGATECALL`（execTransaction / 模块入口 / `SafeTx`）、`approveHash`、恰好 32 字节的消息、对多签自身的管理调用、编码不规范或字段不全的 Safe 结构（D33） | 无限额 approve、permit/permit2、setApprovalForAll；未知合约调用；Safe 退款参数非零、模块入口、多签套多签 |
 | SOL | SPL Token `SetAuthority`、System `Assign` | durable nonce；v0 地址查找表中无法离线验证的地址；未知程序 |
 | NEAR | `AddKey`（FullAccess）、`DeleteAccount` | 带 deposit 的 FunctionCall |
 | TRON | `AccountPermissionUpdateContract` | TRC20 `approve`；fee_limit 异常 |

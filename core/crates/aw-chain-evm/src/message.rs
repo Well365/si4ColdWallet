@@ -2,7 +2,7 @@
 //!
 //! 签名哈希 = Keccak-256("\x19Ethereum Signed Message:\n" ‖ 十进制长度 ‖ 消息)。
 //! 能显示为文字的按文字显示；否则显示十六进制并警告。恰好 32 字节的消息很可能是某笔交易或
-//! 授权的哈希——签了就等于盲签，给出高风险警告。
+//! 授权的哈希——签了就等于盲签，一律拒签（`review::describe_message`，D33）。
 
 use crate::keccak::Keccak256;
 

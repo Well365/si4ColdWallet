@@ -295,7 +295,7 @@ C4/C5 失败的全部内容：45 个不在白名单的导入符号（29 个寄�
 
 ## 7 · 建议优先级
 
-**P0（修复前不应发布）**
+**P0（修复前不应发布）**——第 1–3 项已修复（见第 8 节），第 4 项待人工完成
 
 1. EIP-712 `SafeTx` 的 `operation=1` 与对 safeTxHash 的 personal_sign 一律拒签。
 2. 未知合约调用数据完整显示，或至少完整显示并解析嵌套的 execTransaction。
@@ -319,6 +319,15 @@ C4/C5 失败的全部内容：45 个不在白名单的导入符号（29 个寄�
 14. 为 RLP、CBOR、UR、JSON、PSBT 入口加模糊测试目标（兑现 T6 的承诺）。
 15. 沙箱改默认拒绝；C9 清单补齐；pbxproj 构建设置检查。
 16. 修正第 4.4 节 17 处文档不一致，或把未实现项明确标为"计划中"。
+
+## 8 · 修复记录
+
+| 轮次 | 提交 | 覆盖 |
+|---|---|---|
+| 第一轮 | `6a754d7` | P0-1 部分：`SafeTx` `operation=1` 拒签；P0-2 部分：顶层 `execTransaction` 显示内层目标与内层调用；P0-3 部分：5% 比例与绝对上限告警 |
+| 第二轮 | 本节随附的提交 | 复审发现的缺口：恰好 32 字节的 personal_sign 消息一律拒签（不论能否显示为文字）；对多签自身的 11 个管理调用（含旧版 `changeMasterCopy` / `signMessage`）拒签（新错误码 17）；`SafeTx.data` 与模块入口 `execTransactionFromModule(ReturnData)`（含 `operation = 0`）按与 `execTransaction` 相同的规则审查；编码不规范的执行入口与字段不全的 `SafeTx` 按无法解析拒签；退款参数（`gasPrice` / `gasToken` / `refundReceiver` / `safeTxGas` / `baseGas` 与最多退款）显示并强警告；嵌套执行入口递归展开（深度 ≤ 3，嵌套层以本层目标为多签）；内层 `transferFrom` / `permit` / DAI permit / Permit2 逐项显示；未知调用数据完整显示；BTC "转给自己"按"无对外输出"判定、0 聪对外输出不绕过比例检查、输出总额为 0 时按手续费 100% 处理；两个 FFI crate 的错误码序号由测试固定；`cargo fmt --all --check` 纳入 `tools/checks/run-all.sh` |
+
+第二轮实现先经独立复审（2 项 HIGH：编码不规范的执行入口退化为"未知调用"、可打印的 32 字节消息无告警；3 项 MEDIUM：模块入口 `operation = 0` 未审查、`baseGas` 放大器未显示、内层调用识别不全；以及测试缺口），全部按复审意见改完并补了对应用例，上表为改完后的状态。第二轮之后，P0 中仍未关闭的只剩第 4 项（12 个库的两人人工审查）——这是人工门槛，代码无法替它关闭。两轮的规则定稿见 `docs/05-decisions.md` D32、D33；明确未覆盖的 Safe 路径（4337 `SafeOp`、EIP-1271、其他模块入口、`SafeMessage`）也记录在 D33。
 
 ---
 

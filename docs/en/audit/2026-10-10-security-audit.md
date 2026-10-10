@@ -297,7 +297,7 @@ Conclusions and recommendations:
 
 ## 7 · Recommendation priority
 
-**P0 (do not release until fixed)**
+**P0 (do not release until fixed)** — items 1–3 fixed (see Section 8); item 4 awaits human reviewers
 
 1. Always refuse to sign EIP-712 `SafeTx` with `operation=1`, and personal_sign over a safeTxHash.
 2. Display unknown-contract calldata in full, or at least display a nested execTransaction in full and parse it.
@@ -321,6 +321,15 @@ Conclusions and recommendations:
 14. Add fuzz targets for the RLP, CBOR, UR, JSON, and PSBT entry points (fulfilling the promise of T6).
 15. Switch the sandbox to deny by default; complete the C9 list; check pbxproj build settings.
 16. Fix the 17 documentation inconsistencies in Section 4.4, or explicitly mark unimplemented items as "planned".
+
+## 8 · Fix log
+
+| Round | Commit | Coverage |
+|---|---|---|
+| First | `6a754d7` | Part of P0-1: refuse `SafeTx` with `operation=1`; part of P0-2: top-level `execTransaction` shows the inner target and inner call; part of P0-3: 5% ratio and absolute-cap warnings |
+| Second | the commit accompanying this section | Gaps found by the re-review: always refuse a personal_sign message of exactly 32 bytes (whether or not it displays as text); refuse the 11 admin calls on the Safe itself, including the legacy `changeMasterCopy` / `signMessage` (new error code 17); review `SafeTx.data` and the module entry points `execTransactionFromModule(ReturnData)` (including `operation = 0`) under the same rules as `execTransaction`; refuse non-canonically encoded entry points and incomplete `SafeTx` structures as unparseable; display refund parameters (`gasPrice` / `gasToken` / `refundReceiver` / `safeTxGas` / `baseGas` and the maximum refund) with a strong warning; expand nested entry points recursively (depth ≤ 3, each nested level treating its own target as the Safe); itemise inner `transferFrom` / `permit` / DAI permit / Permit2; display unknown calldata in full; BTC "self-transfer" decided by "no external output", 0-sat external outputs do not bypass the ratio check, a zero output total is treated as a 100% fee; the error-code numbering of both FFI crates is pinned by tests; `cargo fmt --all --check` added to `tools/checks/run-all.sh` |
+
+The second-round implementation first went through an independent re-review (2 HIGH: a non-canonically encoded entry point degraded to an "unknown call", a printable 32-byte message got no warning; 3 MEDIUM: module entry points with `operation = 0` not reviewed, the `baseGas` amplifier not displayed, incomplete recognition of inner calls; plus test gaps). Everything was fixed as the re-review asked, with matching tests; the table above shows the state after those fixes. After the second round, the only P0 item still open is item 4 (two-person human review of the 12 libraries) — a human gate that code cannot close. The final rules of both rounds are recorded in `docs/en/05-decisions.md` D32 and D33; the Safe paths explicitly not covered (4337 `SafeOp`, EIP-1271, other module entry points, `SafeMessage`) are also listed in D33.
 
 ---
 

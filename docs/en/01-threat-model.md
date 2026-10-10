@@ -53,8 +53,8 @@ Beyond these, **nothing is trusted**: package registries, third-party authors' a
 
 | Chain | Refuse to sign by default | Strong warning |
 |---|---|---|
-| BTC / DOGE | Change address does not belong to this wallet | Fee exceeds 5% of the amount or is abnormal in absolute terms; DOGE missing previous transactions → refuse to sign |
-| EVM | EIP-7702 authorization; Safe `DELEGATECALL` | Unlimited approve, permit/permit2, setApprovalForAll; unknown contract calls |
+| BTC / DOGE | Change address does not belong to this wallet; DOGE missing previous transactions | Fee exceeds 5% of the amount paid out (all outputs when everything returns to oneself) or exceeds 0.001 BTC in absolute terms (D32); 0-sat external outputs change nothing |
+| EVM | EIP-7702 authorization; Safe `DELEGATECALL` (execTransaction / module entry points / `SafeTx`), `approveHash`, messages of exactly 32 bytes, admin calls on the Safe itself, non-canonically encoded or incomplete Safe structures (D33) | Unlimited approve, permit/permit2, setApprovalForAll; unknown contract calls; non-zero Safe refund parameters, module entry points, nested Safe executions |
 | SOL | SPL Token `SetAuthority`, System `Assign` | durable nonce; addresses in v0 address lookup tables that cannot be verified offline; unknown programs |
 | NEAR | `AddKey` (FullAccess), `DeleteAccount` | FunctionCall with a deposit |
 | TRON | `AccountPermissionUpdateContract` | TRC20 `approve`; abnormal fee_limit |

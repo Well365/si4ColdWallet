@@ -8,6 +8,7 @@
 use crate::chains::{chain_info, token_info};
 use crate::eip712::{Digest, Leaf, LeafValue, TypedData};
 use crate::message::{as_text, hex_lines};
+use crate::review;
 use crate::review::{contract_label, is_huge, token_amount};
 use crate::typed_known;
 use crate::uint::U256;
@@ -29,6 +30,13 @@ pub(crate) fn leaf<'a>(leaves: &'a [Leaf], path: &str) -> Option<&'a LeafValue> 
 pub(crate) fn addr(leaves: &[Leaf], path: &str) -> Option<[u8; 20]> {
     match leaf(leaves, path)? {
         LeafValue::Address(a) => Some(*a),
+        _ => None,
+    }
+}
+
+pub(crate) fn bytes<'a>(leaves: &'a [Leaf], path: &str) -> Option<&'a [u8]> {
+    match leaf(leaves, path)? {
+        LeafValue::Bytes(b) => Some(b),
         _ => None,
     }
 }
@@ -157,29 +165,43 @@ fn chain_rows(disp: &mut Display, chain_id: Option<u64>) {
     }
 }
 
-/// Safe 多签的交易签名（SafeTx）。多签真正起授权作用的就是这份签名，所以链上 execTransaction 的规则在这里同样适用：
-/// operation 1 = DELEGATECALL，可以改写多签合约本身，默认拒签（docs/01 T9、D23）；缺少或无法解析的 operation 同样拒签。
+/// Safe 多签的交易签名（SafeTx）。多签真正起授权作用的就是这份签名，所以链上 execTransaction 的全部规则
+/// 在这里同样适用（D33）：operation ≠ 0 拒签；data 套用内层审查；退款参数非零强警告；对多签自身的管理调用拒签。
+/// 类型叫 SafeTx 就必须是 Safe 的完整结构（域里有多签地址，九个字段齐全且类型正确），否则按无法解析拒签。
 fn safe_tx(disp: &mut Display, ctx: &Ctx) -> Result<(), EvmError> {
-    match uint(ctx.msg, "operation").and_then(|o| o.to_u64()) {
-        Some(0) => {}
-        _ => return Err(EvmError::DelegateCall),
+    let safe = ctx.contract.ok_or(EvmError::Parse)?;
+    let operation = uint(ctx.msg, "operation")
+        .and_then(|o| o.to_u64())
+        .ok_or(EvmError::Parse)?;
+    if operation != 0 {
+        return Err(EvmError::DelegateCall);
     }
+    let to = addr(ctx.msg, "to").ok_or(EvmError::Parse)?;
+    let value = uint(ctx.msg, "value").ok_or(EvmError::Parse)?;
+    let data = bytes(ctx.msg, "data").ok_or(EvmError::Parse)?;
+    let refund = review::Refund {
+        safe_tx_gas: uint(ctx.msg, "safeTxGas").ok_or(EvmError::Parse)?,
+        base_gas: uint(ctx.msg, "baseGas").ok_or(EvmError::Parse)?,
+        gas_price: uint(ctx.msg, "gasPrice").ok_or(EvmError::Parse)?,
+        gas_token: addr(ctx.msg, "gasToken").ok_or(EvmError::Parse)?,
+        refund_receiver: addr(ctx.msg, "refundReceiver").ok_or(EvmError::Parse)?,
+    };
     disp.title = "Safe 多签交易（SafeTx）".to_owned();
-    if let Some(safe) = ctx.contract {
-        disp.row("多签合约", checksum_address(&safe), Style::Address);
-    }
-    if let Some(to) = addr(ctx.msg, "to") {
-        disp.row("调用目标", checksum_address(&to), Style::Address);
-    }
-    if let Some(v) = uint(ctx.msg, "value") {
-        disp.row("转出金额（wei）", v.to_decimal(), Style::Amount);
-    }
+    disp.row("多签合约", checksum_address(&safe), Style::Address);
     disp.warn(
         Level::Danger,
-        "这是 Safe 多签交易的签名：达到阈值后多签会按下面的 to、value、data 执行调用。\
-         只有逐项核对目标地址、金额与完整 data 后才继续",
+        "这是 Safe 多签交易的签名：达到阈值后多签会按下面的内层调用执行。只有逐项核对目标地址、金额与完整 data 后才继续",
     );
-    Ok(())
+    let chain_id = ctx.chain_id.unwrap_or(0);
+    let symbol = review::chain(chain_id, None).symbol;
+    let inner = review::InnerCtx {
+        chain_id,
+        safe,
+        symbol: &symbol,
+        depth: 0,
+    };
+    review::safe_refund_rows(disp, &inner, &refund);
+    review::inner_call_rows(disp, &inner, &to, value, data)
 }
 
 pub fn describe(
@@ -302,9 +324,35 @@ mod tests {
 
     /// Safe 多签的 SafeTx 结构化签名；operation 1 = DELEGATECALL
     fn safe_tx_json(operation: u8) -> String {
-        format!(
-            r#"{{"types":{{"EIP712Domain":[{{"name":"chainId","type":"uint256"}},{{"name":"verifyingContract","type":"address"}}],"SafeTx":[{{"name":"to","type":"address"}},{{"name":"value","type":"uint256"}},{{"name":"data","type":"bytes"}},{{"name":"operation","type":"uint8"}},{{"name":"safeTxGas","type":"uint256"}},{{"name":"baseGas","type":"uint256"}},{{"name":"gasPrice","type":"uint256"}},{{"name":"gasToken","type":"address"}},{{"name":"refundReceiver","type":"address"}},{{"name":"nonce","type":"uint256"}}]}},"primaryType":"SafeTx","domain":{{"chainId":1,"verifyingContract":"0x1111111111111111111111111111111111111111"}},"message":{{"to":"0x2222222222222222222222222222222222222222","value":0,"data":"0x","operation":{operation},"safeTxGas":0,"baseGas":0,"gasPrice":0,"gasToken":"0x0000000000000000000000000000000000000000","refundReceiver":"0x0000000000000000000000000000000000000000","nonce":5}}}}"#
+        safe_tx_json_with(
+            &operation.to_string(),
+            "0x2222222222222222222222222222222222222222",
+            "0x",
+            0,
+            "0x0000000000000000000000000000000000000000",
+            "0x0000000000000000000000000000000000000000",
         )
+    }
+
+    const SAFE: &str = "0x1111111111111111111111111111111111111111";
+
+    fn safe_tx_json_with(
+        operation: &str,
+        to: &str,
+        data_hex: &str,
+        gas_price: u64,
+        gas_token: &str,
+        refund_receiver: &str,
+    ) -> String {
+        format!(
+            r#"{{"types":{{"EIP712Domain":[{{"name":"chainId","type":"uint256"}},{{"name":"verifyingContract","type":"address"}}],"SafeTx":[{{"name":"to","type":"address"}},{{"name":"value","type":"uint256"}},{{"name":"data","type":"bytes"}},{{"name":"operation","type":"uint8"}},{{"name":"safeTxGas","type":"uint256"}},{{"name":"baseGas","type":"uint256"}},{{"name":"gasPrice","type":"uint256"}},{{"name":"gasToken","type":"address"}},{{"name":"refundReceiver","type":"address"}},{{"name":"nonce","type":"uint256"}}]}},"primaryType":"SafeTx","domain":{{"chainId":1,"verifyingContract":"{SAFE}"}},"message":{{"to":"{to}","value":0,"data":"{data_hex}","operation":{operation},"safeTxGas":0,"baseGas":0,"gasPrice":{gas_price},"gasToken":"{gas_token}","refundReceiver":"{refund_receiver}","nonce":5}}}}"#
+        )
+    }
+
+    fn describe_json(json: &str) -> Result<Display, EvmError> {
+        let td = TypedData::parse(json).unwrap();
+        let d = td.digest().unwrap();
+        describe(&td, &d, Some(1), &[0x33; 20], 0)
     }
 
     /// docs/01 T9、D23：Safe 的 DELEGATECALL 默认拒签——通过 EIP-712 SafeTx 签名的路径也必须拒
@@ -326,5 +374,134 @@ mod tests {
         let disp = describe(&td, &d, Some(1), &[0x33; 20], 0).unwrap();
         assert!(disp.has_danger(), "{:?}", disp.warnings);
         assert!(disp.title.contains("Safe"), "{}", disp.title);
+    }
+
+    /// D33：SafeTx 的 data 必须按与链上 execTransaction 相同的规则审查
+    #[test]
+    fn safe_tx_data_is_reviewed_like_exec_transaction() {
+        // 内层 approveHash：预批看不到内容的交易 → 拒签
+        let approve_hash = format!("0xd4d9bdcd{}", "ab".repeat(32));
+        let j = safe_tx_json_with("0", SAFE, &approve_hash, 0, SAFE_ZERO, SAFE_ZERO);
+        assert_eq!(describe_json(&j).unwrap_err(), EvmError::BlindApproval);
+        // 内层 execTransaction(operation = 1) → 拒签
+        let inner_exec = format!(
+            "0x6a761202{}{}{:064x}{:064x}",
+            "00".repeat(12) + &"22".repeat(20),
+            "00".repeat(32),
+            0x140,
+            1
+        );
+        let j = safe_tx_json_with("0", SAFE, &inner_exec, 0, SAFE_ZERO, SAFE_ZERO);
+        assert_eq!(describe_json(&j).unwrap_err(), EvmError::DelegateCall);
+        // 内层对 USDT 的无限额 approve → 必须出现"无限额"高风险警告
+        let usdt = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
+        let approve = format!(
+            "0x095ea7b3{}{}",
+            "00".repeat(12) + &"44".repeat(20),
+            "ff".repeat(32)
+        );
+        let d = describe_json(&safe_tx_json_with(
+            "0", usdt, &approve, 0, SAFE_ZERO, SAFE_ZERO,
+        ))
+        .unwrap();
+        assert!(
+            d.warnings
+                .iter()
+                .any(|w| w.level == Level::Danger && w.text.contains("无限额")),
+            "{:?}",
+            d.warnings
+        );
+    }
+
+    const SAFE_ZERO: &str = "0x0000000000000000000000000000000000000000";
+
+    /// D33：多签对自身的管理调用（启用模块等）移交控制权 → 拒签
+    #[test]
+    fn safe_tx_admin_self_call_is_refused() {
+        let enable_module = format!("0x610b5925{}", "00".repeat(12) + &"66".repeat(20));
+        let j = safe_tx_json_with("0", SAFE, &enable_module, 0, SAFE_ZERO, SAFE_ZERO);
+        assert_eq!(describe_json(&j).unwrap_err(), EvmError::SafeAdmin);
+        // 同样的调用数据发给别的合约不是多签自管理，只按未知调用处理（高风险但可确认）
+        let j = safe_tx_json_with(
+            "0",
+            "0x2222222222222222222222222222222222222222",
+            &enable_module,
+            0,
+            SAFE_ZERO,
+            SAFE_ZERO,
+        );
+        assert!(describe_json(&j).unwrap().has_danger());
+    }
+
+    /// D33：退款参数非零时必须显示并强警告
+    #[test]
+    fn safe_tx_refund_params_are_flagged() {
+        let usdt = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
+        let attacker = "0x6666666666666666666666666666666666666666";
+        let d = describe_json(&safe_tx_json_with(
+            "0",
+            SAFE,
+            "0x",
+            1_000_000_000_000,
+            usdt,
+            attacker,
+        ))
+        .unwrap();
+        assert!(
+            d.rows.iter().any(|r| r
+                .value
+                .contains("0x6666666666666666666666666666666666666666")),
+            "{:?}",
+            d.rows
+        );
+        assert!(
+            d.warnings
+                .iter()
+                .any(|w| w.level == Level::Danger && w.text.contains("退款")),
+            "{:?}",
+            d.warnings
+        );
+        // 退款参数全零时没有这条警告
+        let d = describe_json(&safe_tx_json(0)).unwrap();
+        assert!(!d.warnings.iter().any(|w| w.text.contains("退款")));
+    }
+
+    /// operation 缺失或不是整数：不是 Safe 的结构 → 按解析错误拒签
+    #[test]
+    fn safe_tx_without_integer_operation_is_a_parse_error() {
+        let j = safe_tx_json_with("\"1\"", SAFE, "0x", 0, SAFE_ZERO, SAFE_ZERO).replace(
+            r#"{"name":"operation","type":"uint8"}"#,
+            r#"{"name":"operation","type":"string"}"#,
+        );
+        assert_eq!(describe_json(&j).unwrap_err(), EvmError::Parse);
+    }
+
+    /// 审计复审 #7：SafeTx 缺字段、字段类型不对、域里没有多签地址 → 按无法解析拒签，不能默认成零
+    #[test]
+    fn safe_tx_incomplete_structures_are_parse_errors() {
+        let full = safe_tx_json(0);
+        let no_to = full
+            .replacen(r#"{"name":"to","type":"address"},"#, "", 1)
+            .replacen(
+                r#""to":"0x2222222222222222222222222222222222222222","#,
+                "",
+                1,
+            );
+        assert_ne!(no_to, full);
+        assert_eq!(describe_json(&no_to).unwrap_err(), EvmError::Parse);
+        let str_gas = full
+            .replacen(
+                r#"{"name":"gasPrice","type":"uint256"}"#,
+                r#"{"name":"gasPrice","type":"string"}"#,
+                1,
+            )
+            .replacen(r#""gasPrice":0,"#, r#""gasPrice":"0","#, 1);
+        assert_ne!(str_gas, full);
+        assert_eq!(describe_json(&str_gas).unwrap_err(), EvmError::Parse);
+        let no_vc = full
+            .replacen(r#",{"name":"verifyingContract","type":"address"}"#, "", 1)
+            .replacen(&format!(r#","verifyingContract":"{SAFE}""#), "", 1);
+        assert_ne!(no_vc, full);
+        assert_eq!(describe_json(&no_vc).unwrap_err(), EvmError::Parse);
     }
 }

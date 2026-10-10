@@ -204,3 +204,30 @@
 
 - **决定**：签名机地址页在地址下方显示各链区块浏览器的网址（`Text(verbatim:)`，不解析成链接、不能点击、不调用任何打开网址的接口——C9 继续禁止 `openURL`）。网址只由固定前缀与全字母数字的地址拼成。观察机的 BTC / EVM 地址下方给出可点的链接。网址表：BTC mempool.space、ETH Etherscan、BNB BscScan、SOL Solana Explorer、DOGE Blockchair（测试网没有常用浏览器，不显示）、TRON Tronscan、NEAR NearBlocks。
 - **代价**：签名机上的网址要在别的设备上手动输入。
+
+## D32 · BTC 手续费判定：5% 比例、绝对上限、转给自己同样检查、0 聪输出不改变判定（2026-10-10，审计 P0-3 与复审）
+
+- **决定**：`aw-chain-btc` 的手续费告警按三条规则给出，命中任一条都是高风险（`Level::Danger`），FFI 必须带 `confirm_danger=1` 才会签：
+  1. **比例**：`fee × 20 > 比例基数`（即超过 5%）。比例基数 = 对外付款总额；对外付款总额为 0 时（全部转回本钱包，或对外输出全是 0 聪）按全部输出总额计；基数为 0 时只要 `fee > 0` 就算超比例（手续费占 100%）。
+  2. **绝对值**：`fee > HIGH_FEE_ABSOLUTE_SAT = 100 000 聪（0.001 BTC）`，与比例无关。
+  3. **费率**：原有的 `HighFeeRate` 规则不变。
+- **"转给自己"的判定**改为"没有任何一个对外（External）输出"，而不是"对外金额为 0"：带 0 聪对外输出的交易既不算"转给自己"，也照样进比例检查。标题"转给自己"与 `SelfTransferOnly` 告警用同一判定。
+- **阈值的适用范围**：这些常量只为 BTC 主网/测试网设定。DOGE 的手续费单位与数量级完全不同（约 0.01 DOGE/kB ≈ 1 000 000 koinu），接入 DOGE 时绝对阈值必须按币种单独给出，不得复用 100 000 这个数。
+- **代价**：大额自转（例如整理 UTXO）手续费只要超过输出的 5% 就要多点一次确认；高费率时段 0.001 BTC 以上的手续费也会要求确认。这是有意为之：多确认一次比少看一次便宜。
+- 测试：`aw-e2e/tests/btc_roundtrip.rs`（5% 告警、自转比例、绝对上限、0 聪输出不绕过）。
+
+## D33 · Safe 多签：内层调用同规则审查，管理调用与盲签一律拒签（2026-10-10，审计 P0-1/P0-2、复审与第二次复审）
+
+- **背景**：Safe（原 Gnosis Safe）的签名有三条路：链上 `execTransaction`（选择器 `0x6a761202`）、模块入口 `execTransactionFromModule` / `…ReturnData`（`0x468721a7` / `0x5229073f`）、以及 EIP-712 `SafeTx` 签名（真正起授权作用的那一份）。首轮修复只拒了 `operation=1` 并显示了内层目标；复审指出仍有四条绕过：对 safeTxHash 的 personal_sign、对多签自身的管理调用、`SafeTx.data` 没有展开、退款参数被忽略。第二轮实现再经独立复审，补上了编码不规范、模块入口 `operation=0`、可打印的 32 字节消息、`baseGas` 放大器、内层 transferFrom / permit 不逐项、SafeTx 字段默认成零这几处。
+- **决定**（三条路完全同一套规则，代码共用 `review::inner_call_rows` / `safe_exec_rows` / `safe_refund_rows`）：
+  1. `operation ≠ 0`（DELEGATECALL）→ 拒签 `DelegateCall`。**编码不规范**的执行入口（头部不完整、地址字高位非零、偏移或长度越界）→ 拒签 `Parse`：Safe 1.3/1.4 由 solc 0.7（ABI 编码器 v1）编译，会把地址字的高位截掉照常执行，签名机不能把它当作"未知调用"放过。
+  2. 内层 `approveHash(bytes32)` → 拒签 `BlindApproval`；personal_sign 的消息**恰好 32 字节一律**拒签 `BlindApproval`——不只拒"不能显示为文字"的：攻击者可以调整 SafeTx 的 `baseGas` 等自由字段把 safeTxHash 凑成全部可打印字符（约 2^45 次尝试，单张显卡几小时）。Safe 接受 eth_sign 风格的签名，这是 approveHash 的链下等价物。
+  3. 内层目标是多签合约自身、且选择器属于 11 个管理函数（`enableModule`、`disableModule`、`addOwnerWithThreshold`、`removeOwner`、`swapOwner`、`changeThreshold`、`setGuard`、`setFallbackHandler`、`setModuleGuard`，以及旧版 ≤ 1.1.1 的 `changeMasterCopy`、`signMessage`）→ 拒签 `SafeAdmin`（错误码 `AW_ERR_EVM_REJECT_BASE - 17`）；对自身的其他调用保留高风险告警。选择器由单测与 keccak 计算结果比对；每一个都有端到端拒签用例。
+  4. `gasPrice ≠ 0` → 显示退款 gas 单价、`safeTxGas`、`baseGas`、退款代币（ERC-20 时显示合约标签；零地址为原生币）、退款接收方（零地址时标明付给交易发起者 tx.origin）、以及"最多退款 = (safeTxGas + baseGas) × gasPrice"，并给高风险告警；`safeTxGas` 为 0 时注明实际用气不受限、该数不是上限。用 ERC-20 退款不受链上 gas 价限制，`baseGas` 可以任意放大，可以抽干该代币。
+  5. 模块入口 `operation = 0` 也按同一规则展开，并标明"模块入口（不经过多签阈值）：若本账户就是模块，这笔调用会直接执行"。
+  6. 内层调用数据完整显示（每行 32 字节，与消息签名一致），不截断；内层再套执行入口时递归展开，嵌套层的"多签"就是这一层的目标，深度上限 3，超过按 `TooLong` 拒签。
+  7. 内层调用套用与顶层相同的识别与告警：已知代币转账/授权、`transferFrom`、EIP-2612 `permit`、DAI `permit`、Permit2 `approve`、`setApprovalForAll`、未知合约 `transfer`（高风险）、未知选择器（高风险）；行名加"内层"前缀。
+  8. `SafeTx` 必须是 Safe 的完整结构：域里有 `verifyingContract`，`to / value / data / operation / safeTxGas / baseGas / gasPrice / gasToken / refundReceiver` 九个字段齐全且类型正确；缺任何一项或类型不对 → 拒签 `Parse`，不默认成零。
+  9. 顶层标题为"疑似 Safe 多签执行"并显示入口名：签名机只能按选择器识别，无法核实目标合约真的是 Safe。
+- **未覆盖**（明确告知）：Safe 的 4337 模块 `SafeOp`、EIP-1271 合约签名流程、其他模块的自定义入口、`SafeMessage` 类型数据。它们目前走"一切 EIP-712 结构化签名都是高风险"的通用规则（D29），不做语义解析。
+- 测试：`aw-chain-evm/src/{abi,review,typed_review}.rs` 单测（选择器与 keccak 比对、畸形编码、模块入口、结构不完整）；`aw-e2e/tests/evm_roundtrip.rs::{safe_bypass_paths_are_closed, safe_second_review_gaps_are_closed}`；两个 FFI crate 各有错误码序号固定测试。

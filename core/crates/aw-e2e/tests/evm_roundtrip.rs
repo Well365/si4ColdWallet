@@ -227,7 +227,7 @@ fn legacy_bsc_and_personal_message() {
         .any(|x| x.value == "Sign in to example.org"));
     assert!([27, 28].contains(&sig.signature[64]));
     assert_eq!(finalize(&secp, &w, &req, &sig).unwrap(), sig.signature);
-    // 32 字节消息：盲签警告
+    // 32 字节且不能按文字显示的消息：很可能是 safeTxHash 等交易哈希，签它等于盲签 → 拒签（D33）
     let req = build_request(
         &secp,
         &w,
@@ -238,10 +238,34 @@ fn legacy_bsc_and_personal_message() {
         [5; 16],
     )
     .unwrap();
-    assert!(review(&secp, &s.account, &req)
-        .unwrap()
-        .display
-        .has_danger());
+    assert_eq!(
+        review(&secp, &s.account, &req).map(|_| ()),
+        Err(EvmError::BlindApproval)
+    );
+    // 恰好 32 字节的文字消息同样拒签：攻击者可以调整 SafeTx 的自由字段把 safeTxHash 凑成可打印字符（审计复审 #2）；
+    // 31 / 33 字节照常可签
+    for (msg, want_ok) in [
+        (&b"abcdefghijklmnopqrstuvwxyz012345"[..], false),
+        (&b"abcdefghijklmnopqrstuvwxyz01234"[..], true),
+        (&b"abcdefghijklmnopqrstuvwxyz0123456"[..], true),
+    ] {
+        let req = build_request(
+            &secp,
+            &w,
+            0,
+            msg.to_vec(),
+            DataType::PersonalMessage,
+            None,
+            [5; 16],
+        )
+        .unwrap();
+        let got = review(&secp, &s.account, &req).map(|_| ());
+        if want_ok {
+            assert_eq!(got, Ok(()), "{} 字节", msg.len());
+        } else {
+            assert_eq!(got, Err(EvmError::BlindApproval), "{} 字节", msg.len());
+        }
+    }
 }
 
 #[test]
@@ -776,10 +800,9 @@ fn unknown_calldata_is_shown_in_full_and_nested_safe_exec_is_decoded() {
     let r = review_of(nft, exec);
     assert!(r.display.title.contains("Safe"), "{}", r.display.title);
     assert!(
-        r.display
-            .rows
-            .iter()
-            .any(|x| x.value.contains(&checksum_address(&parse_address(USDT_ETH).unwrap()))),
+        r.display.rows.iter().any(|x| x
+            .value
+            .contains(&checksum_address(&parse_address(USDT_ETH).unwrap()))),
         "{:?}",
         r.display.rows
     );
@@ -788,6 +811,425 @@ fn unknown_calldata_is_shown_in_full_and_nested_safe_exec_is_decoded() {
             .warnings
             .iter()
             .any(|x| x.level == Level::Danger && x.text.contains("无限额")),
+        "{:?}",
+        r.display.warnings
+    );
+}
+
+/// Safe execTransaction 的 ABI 编码：to, value, data, operation, safeTxGas, baseGas, gasPrice, gasToken, refundReceiver, signatures
+fn exec_calldata(
+    selector: &str,
+    to: &str,
+    inner: &[u8],
+    operation: u64,
+    gas_price: u64,
+    gas_token: &str,
+    refund: &str,
+) -> Vec<u8> {
+    let addr_word = |a: &str| {
+        let mut x = [0u8; 32];
+        x[12..].copy_from_slice(&parse_address(a).unwrap());
+        x
+    };
+    let num = |v: u64| U256::from_u64(v).to_be_bytes();
+    let padded = inner.len().div_ceil(32) * 32;
+    let mut d = aw_common::hex::decode(selector).unwrap();
+    for word in [
+        addr_word(to),
+        num(0),
+        num(320),
+        num(operation),
+        num(0),
+        num(0),
+        num(gas_price),
+        addr_word(gas_token),
+        addr_word(refund),
+        num(320 + 32 + padded as u64),
+    ] {
+        d.extend_from_slice(&word);
+    }
+    d.extend_from_slice(&num(inner.len() as u64));
+    d.extend_from_slice(inner);
+    d.extend(std::iter::repeat_n(0u8, padded - inner.len()));
+    d.extend_from_slice(&num(0));
+    d
+}
+
+const ZERO_ADDR: &str = "0x0000000000000000000000000000000000000000";
+const SAFE_ADDR: &str = "0x1111111111111111111111111111111111111111";
+const ATTACKER: &str = "0x6666666666666666666666666666666666666666";
+
+/// D33：Safe 的几条绕行路径都必须拒签或强警告
+#[test]
+fn safe_bypass_paths_are_closed() {
+    let secp = Secp256k1::new();
+    let s = signer(&secp);
+    let w = watcher_account(&s);
+    let review_of = |to: &str, data: Vec<u8>| {
+        let req = build_request(
+            &secp,
+            &w,
+            0,
+            payment(1, to, 0, data),
+            DataType::TypedTx,
+            Some(1),
+            [14; 16],
+        )
+        .unwrap();
+        review(&secp, &s.account, &req)
+    };
+    let enable_module = {
+        let mut d = aw_common::hex::decode("610b5925").unwrap();
+        d.extend_from_slice(&[0u8; 12]);
+        d.extend_from_slice(&parse_address(ATTACKER).unwrap());
+        d
+    };
+    // 1. 多签对自身的 enableModule（operation 0）→ 拒签
+    let exec = exec_calldata(
+        "6a761202",
+        SAFE_ADDR,
+        &enable_module,
+        0,
+        0,
+        ZERO_ADDR,
+        ZERO_ADDR,
+    );
+    assert_eq!(
+        review_of(SAFE_ADDR, exec).map(|_| ()),
+        Err(EvmError::SafeAdmin)
+    );
+    // 2. 模块入口的 DELEGATECALL → 拒签（两个选择器）
+    for sel in ["468721a7", "5229073f"] {
+        let mut d = aw_common::hex::decode(sel).unwrap();
+        let mut w32 = [0u8; 32];
+        w32[12..].copy_from_slice(&parse_address(RECIPIENT).unwrap());
+        d.extend_from_slice(&w32);
+        d.extend_from_slice(&U256::from_u64(0).to_be_bytes());
+        d.extend_from_slice(&U256::from_u64(128).to_be_bytes());
+        d.extend_from_slice(&U256::from_u64(1).to_be_bytes());
+        d.extend_from_slice(&U256::from_u64(0).to_be_bytes());
+        assert_eq!(
+            review_of(SAFE_ADDR, d).map(|_| ()),
+            Err(EvmError::DelegateCall),
+            "{sel}"
+        );
+    }
+    // 3. 三层嵌套：exec(0) → exec(0) → exec(1) → 拒签
+    let l3 = exec_calldata("6a761202", RECIPIENT, &[], 1, 0, ZERO_ADDR, ZERO_ADDR);
+    let l2 = exec_calldata("6a761202", SAFE_ADDR, &l3, 0, 0, ZERO_ADDR, ZERO_ADDR);
+    let l1 = exec_calldata("6a761202", SAFE_ADDR, &l2, 0, 0, ZERO_ADDR, ZERO_ADDR);
+    assert_eq!(
+        review_of(SAFE_ADDR, l1).map(|_| ()),
+        Err(EvmError::DelegateCall)
+    );
+    // 4. 退款参数：gasPrice 非零、gasToken = USDT、refundReceiver = 攻击者 → 显示并强警告
+    let transfer = {
+        let mut d = aw_common::hex::decode("a9059cbb").unwrap();
+        d.extend_from_slice(&[0u8; 12]);
+        d.extend_from_slice(&parse_address(RECIPIENT).unwrap());
+        d.extend_from_slice(&U256::from_u64(1_000_000).to_be_bytes());
+        d
+    };
+    let exec = exec_calldata(
+        "6a761202",
+        USDT_ETH,
+        &transfer,
+        0,
+        1_000_000_000_000,
+        USDT_ETH,
+        ATTACKER,
+    );
+    let r = review_of(SAFE_ADDR, exec).unwrap();
+    assert!(
+        r.display.rows.iter().any(|x| x
+            .value
+            .contains(&checksum_address(&parse_address(ATTACKER).unwrap()))),
+        "{:?}",
+        r.display.rows
+    );
+    assert!(
+        r.display
+            .warnings
+            .iter()
+            .any(|x| x.level == Level::Danger && x.text.contains("退款")),
+        "{:?}",
+        r.display.warnings
+    );
+    // 5. 内层 approve 给 Permit2 → 与顶层一样强警告
+    let approve_permit2 = {
+        let mut d = aw_common::hex::decode("095ea7b3").unwrap();
+        d.extend_from_slice(&[0u8; 12]);
+        d.extend_from_slice(&aw_chain_evm::chains::PERMIT2);
+        d.extend_from_slice(&U256::from_u64(1).to_be_bytes());
+        d
+    };
+    let exec = exec_calldata(
+        "6a761202",
+        USDT_ETH,
+        &approve_permit2,
+        0,
+        0,
+        ZERO_ADDR,
+        ZERO_ADDR,
+    );
+    let r = review_of(SAFE_ADDR, exec).unwrap();
+    assert!(
+        r.display
+            .warnings
+            .iter()
+            .any(|x| x.level == Level::Danger && x.text.contains("Permit2")),
+        "{:?}",
+        r.display.warnings
+    );
+}
+
+/// 审计复审（第二轮之后）：剩下的口子必须全部关上——编码不规范、模块入口、全部管理函数、嵌套深度、
+/// 嵌套层的多签身份、退款放大器、内层 transferFrom / permit 的逐项显示
+#[test]
+fn safe_second_review_gaps_are_closed() {
+    let secp = Secp256k1::new();
+    let s = signer(&secp);
+    let w = watcher_account(&s);
+    let review_of = |to: &str, data: Vec<u8>| {
+        let req = build_request(
+            &secp,
+            &w,
+            0,
+            payment(1, to, 0, data),
+            DataType::TypedTx,
+            Some(1),
+            [15; 16],
+        )
+        .unwrap();
+        review(&secp, &s.account, &req)
+    };
+    let word = |a: &str| {
+        let mut x = [0u8; 32];
+        x[12..].copy_from_slice(&parse_address(a).unwrap());
+        x
+    };
+    let has_row = |r: &aw_chain_evm::review::Reviewed, label: &str, needle: &str| {
+        r.display
+            .rows
+            .iter()
+            .any(|x| x.label == label && x.value.contains(needle))
+    };
+    let enable_module = {
+        let mut d = aw_common::hex::decode("610b5925").unwrap();
+        d.extend_from_slice(&word(ATTACKER));
+        d
+    };
+
+    // 1. 编码不规范（to 字高位非零）的 execTransaction：Safe 会截掉高位照常执行，签名机必须拒签而不是当作未知调用
+    let mut dirty = exec_calldata(
+        "6a761202",
+        SAFE_ADDR,
+        &enable_module,
+        0,
+        0,
+        ZERO_ADDR,
+        ZERO_ADDR,
+    );
+    dirty[4] = 0x01;
+    assert_eq!(
+        review_of(SAFE_ADDR, dirty).map(|_| ()),
+        Err(EvmError::Parse)
+    );
+
+    // 2. 模块入口 operation = 0：内层同样审查——对多签自身的 enableModule 拒签；转出金额与入口名逐项显示
+    let module_call = |sel: &str, to: &str, value: u64, inner: &[u8]| {
+        let padded = inner.len().div_ceil(32) * 32;
+        let mut d = aw_common::hex::decode(sel).unwrap();
+        d.extend_from_slice(&word(to));
+        d.extend_from_slice(&U256::from_u64(value).to_be_bytes());
+        d.extend_from_slice(&U256::from_u64(128).to_be_bytes());
+        d.extend_from_slice(&U256::from_u64(0).to_be_bytes());
+        d.extend_from_slice(&U256::from_u64(inner.len() as u64).to_be_bytes());
+        d.extend_from_slice(inner);
+        d.extend(std::iter::repeat_n(0u8, padded - inner.len()));
+        d
+    };
+    for sel in ["468721a7", "5229073f"] {
+        assert_eq!(
+            review_of(SAFE_ADDR, module_call(sel, SAFE_ADDR, 0, &enable_module)).map(|_| ()),
+            Err(EvmError::SafeAdmin),
+            "{sel}"
+        );
+        let r = review_of(
+            SAFE_ADDR,
+            module_call(sel, ATTACKER, 10_000_000_000_000_000_000, &[]),
+        )
+        .unwrap();
+        assert!(
+            has_row(&r, "内层转出金额", "10 ETH"),
+            "{:?}",
+            r.display.rows
+        );
+        assert!(
+            has_row(&r, "执行入口", "FromModule"),
+            "{:?}",
+            r.display.rows
+        );
+        assert!(
+            r.display
+                .warnings
+                .iter()
+                .any(|x| x.text.contains("模块入口")),
+            "{:?}",
+            r.display.warnings
+        );
+    }
+
+    // 3. 全部管理函数（含旧版 changeMasterCopy / signMessage）每一个都拒签，不只 enableModule
+    for (sel, sig) in &aw_chain_evm::abi::SAFE_ADMIN {
+        let mut inner = sel.to_vec();
+        inner.extend_from_slice(&[0u8; 32]);
+        let exec = exec_calldata("6a761202", SAFE_ADDR, &inner, 0, 0, ZERO_ADDR, ZERO_ADDR);
+        assert_eq!(
+            review_of(SAFE_ADDR, exec).map(|_| ()),
+            Err(EvmError::SafeAdmin),
+            "{sig}"
+        );
+    }
+
+    // 4. 嵌套深度：顶层 + 3 层可以；再多一层按无法完整显示拒签
+    let nest = |levels: usize| {
+        let mut data: Vec<u8> = vec![];
+        for _ in 0..levels {
+            data = exec_calldata("6a761202", RECIPIENT, &data, 0, 0, ZERO_ADDR, ZERO_ADDR);
+        }
+        data
+    };
+    assert!(review_of(SAFE_ADDR, nest(4)).is_ok());
+    assert_eq!(
+        review_of(SAFE_ADDR, nest(5)).map(|_| ()),
+        Err(EvmError::TooLong)
+    );
+
+    // 5. 嵌套层的"多签"是这一层的目标：exec(B, exec(B, enableModule)) 拒签；exec(B, exec(SAFE, enableModule)) 不是自管理
+    let b = RECIPIENT;
+    let inner_b = exec_calldata("6a761202", b, &enable_module, 0, 0, ZERO_ADDR, ZERO_ADDR);
+    let outer = exec_calldata("6a761202", b, &inner_b, 0, 0, ZERO_ADDR, ZERO_ADDR);
+    assert_eq!(
+        review_of(SAFE_ADDR, outer).map(|_| ()),
+        Err(EvmError::SafeAdmin)
+    );
+    let inner_safe = exec_calldata(
+        "6a761202",
+        SAFE_ADDR,
+        &enable_module,
+        0,
+        0,
+        ZERO_ADDR,
+        ZERO_ADDR,
+    );
+    let outer = exec_calldata("6a761202", b, &inner_safe, 0, 0, ZERO_ADDR, ZERO_ADDR);
+    assert!(review_of(SAFE_ADDR, outer).unwrap().display.has_danger());
+
+    // 6. 退款：baseGas 放大器要显示并进入"最多退款"；原生币退款与零地址接收方（tx.origin）也要标明
+    let transfer = {
+        let mut d = aw_common::hex::decode("a9059cbb").unwrap();
+        d.extend_from_slice(&word(RECIPIENT));
+        d.extend_from_slice(&U256::from_u64(1_000_000).to_be_bytes());
+        d
+    };
+    let mut exec = exec_calldata("6a761202", USDT_ETH, &transfer, 0, 1, USDT_ETH, ATTACKER);
+    exec[4 + 32 * 5 + 10] = 0x01; // baseGas = 2^168
+    let r = review_of(SAFE_ADDR, exec).unwrap();
+    assert!(
+        r.display
+            .rows
+            .iter()
+            .any(|x| x.label == "baseGas" && x.value.len() > 40),
+        "{:?}",
+        r.display.rows
+    );
+    assert!(
+        r.display
+            .rows
+            .iter()
+            .any(|x| x.label.starts_with("最多退款") && x.value.contains("USDT")),
+        "{:?}",
+        r.display.rows
+    );
+    let exec = exec_calldata(
+        "6a761202",
+        RECIPIENT,
+        &[],
+        0,
+        1_000_000_000,
+        ZERO_ADDR,
+        ZERO_ADDR,
+    );
+    let r = review_of(SAFE_ADDR, exec).unwrap();
+    assert!(has_row(&r, "退款代币", "原生币"), "{:?}", r.display.rows);
+    assert!(
+        has_row(&r, "退款接收方", "tx.origin"),
+        "{:?}",
+        r.display.rows
+    );
+    assert!(
+        r.display
+            .warnings
+            .iter()
+            .any(|x| x.level == Level::Danger && x.text.contains("退款")),
+        "{:?}",
+        r.display.warnings
+    );
+
+    // 7. 内层 transferFrom / permit 与顶层一样逐项列出
+    let transfer_from = {
+        let mut d = aw_common::hex::decode("23b872dd").unwrap();
+        d.extend_from_slice(&word(SAFE_ADDR));
+        d.extend_from_slice(&word(ATTACKER));
+        d.extend_from_slice(&U256::from_u64(1_000_000).to_be_bytes());
+        d
+    };
+    let exec = exec_calldata(
+        "6a761202",
+        USDT_ETH,
+        &transfer_from,
+        0,
+        0,
+        ZERO_ADDR,
+        ZERO_ADDR,
+    );
+    let r = review_of(SAFE_ADDR, exec).unwrap();
+    let safe_cs = checksum_address(&parse_address(SAFE_ADDR).unwrap());
+    let attacker_cs = checksum_address(&parse_address(ATTACKER).unwrap());
+    assert!(
+        has_row(&r, "内层转出地址", &safe_cs),
+        "{:?}",
+        r.display.rows
+    );
+    assert!(
+        has_row(&r, "内层收款地址", &attacker_cs),
+        "{:?}",
+        r.display.rows
+    );
+    assert!(has_row(&r, "内层代币数量", "USDT"), "{:?}", r.display.rows);
+    let permit = {
+        let mut d = aw_common::hex::decode("d505accf").unwrap();
+        d.extend_from_slice(&word(SAFE_ADDR));
+        d.extend_from_slice(&word(ATTACKER));
+        d.extend_from_slice(&[0xff; 32]);
+        d.extend_from_slice(&U256::from_u64(0).to_be_bytes());
+        d.extend_from_slice(&U256::from_u64(27).to_be_bytes());
+        d.extend_from_slice(&[0u8; 64]);
+        d
+    };
+    let exec = exec_calldata("6a761202", USDT_ETH, &permit, 0, 0, ZERO_ADDR, ZERO_ADDR);
+    let r = review_of(SAFE_ADDR, exec).unwrap();
+    assert!(
+        has_row(&r, "内层被授权方", &attacker_cs),
+        "{:?}",
+        r.display.rows
+    );
+    assert!(
+        r.display
+            .warnings
+            .iter()
+            .any(|x| x.level == Level::Danger && x.text.contains("permit")),
         "{:?}",
         r.display.warnings
     );

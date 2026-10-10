@@ -22,7 +22,10 @@ enum WatchCore {
             case AW_ERR_EVM_REJECT_BASE - 1: return "数据无法解析：二维码类型不对，或 JSON 不严谨（重复键、多余或缺少字段、数值越界、引号被输入法改成中文引号等）"
             case AW_ERR_EVM_REJECT_BASE - 2: return "不支持的数据类型"
             case AW_ERR_EVM_REJECT_BASE - 5: return "结构化数据里的链 ID 与所选网络不一致"
+            case AW_ERR_EVM_REJECT_BASE - 8: return "Safe 多签的 DELEGATECALL（operation ≠ 0）一律拒绝"
+            case AW_ERR_EVM_REJECT_BASE - 14: return "疑似盲签（approveHash、恰好 32 字节的非文字消息等），拒绝"
             case AW_ERR_EVM_REJECT_BASE - 16: return "内容超长（单个字段超过 1024 字节、消息超过 4096 字节或结构太复杂），签名机无法完整显示"
+            case AW_ERR_EVM_REJECT_BASE - 17: return "Safe 多签对自身的所有者、阈值、模块、守卫或回退处理器变更会移交多签控制权，拒绝"
             default: return "错误 \(code)"
             }
         }

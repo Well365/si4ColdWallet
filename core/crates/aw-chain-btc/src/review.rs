@@ -235,7 +235,8 @@ pub fn review<C: Verification>(
     } else {
         output_total
     };
-    if ratio_base > 0 && fee.saturating_mul(HIGH_FEE_RATIO_DIVISOR) > ratio_base {
+    // 输出总额为 0（手续费 100%）时任何手续费都算超比例
+    if fee > 0 && fee.saturating_mul(HIGH_FEE_RATIO_DIVISOR) > ratio_base {
         warnings.push(Warning::HighFeeRatio);
     }
     if fee > HIGH_FEE_ABSOLUTE_SAT {
@@ -247,7 +248,8 @@ pub fn review<C: Verification>(
     {
         warnings.push(Warning::DustOutput);
     }
-    if external_total == 0 {
+    // "转给自己"按"没有任何对外输出"判定：0 聪的对外输出仍是对外付款（粉尘）
+    if !outputs.iter().any(|o| o.kind == OutputKind::External) {
         warnings.push(Warning::SelfTransferOnly);
     }
     let locktime = tx.lock_time.to_consensus_u32();
@@ -275,7 +277,7 @@ impl Review {
         let testnet = self.network != bitcoin::Network::Bitcoin;
         let unit = if testnet { "tBTC" } else { "BTC" };
         let btc = |sat: u64| format!("{} {unit}", format_sat(sat));
-        let title = if self.external_total == 0 {
+        let title = if !self.outputs.iter().any(|o| o.kind == OutputKind::External) {
             "转给自己"
         } else {
             "发送 BTC"
@@ -330,7 +332,10 @@ impl Review {
         for w in &self.warnings {
             match w {
                 Warning::HighFeeRate => d.warn(Level::Danger, "手续费率异常高（超过 500 sat/vB）"),
-                Warning::HighFeeRatio => d.warn(Level::Danger, "手续费超过付款金额的 5%"),
+                Warning::HighFeeRatio => d.warn(
+                    Level::Danger,
+                    "手续费超过付款金额的 5%（没有对外付款时按全部输出计）",
+                ),
                 Warning::HighFeeAbsolute => d.warn(
                     Level::Danger,
                     format!("手续费绝对值异常高（超过 {}）", btc(HIGH_FEE_ABSOLUTE_SAT)),

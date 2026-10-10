@@ -44,6 +44,7 @@ pub(crate) fn evm_code(e: EvmError) -> i32 {
         EvmError::BlindApproval => 14,
         EvmError::NeedsConfirmation => 15,
         EvmError::TooLong => 16,
+        EvmError::SafeAdmin => 17,
     };
     AW_ERR_EVM_REJECT_BASE - n
 }

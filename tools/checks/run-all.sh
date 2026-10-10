@@ -24,6 +24,7 @@ done
 
 rc=0
 tools/bootstrap/verify-toolchain.sh          || rc=1
+cargo fmt --all --check >/dev/null 2>&1 || { echo "[fmt] rustfmt 不一致：请运行 cargo fmt --all"; rc=1; }
 python3 -I tools/aw.py verify-third-party $release || rc=1
 python3 -I tools/aw.py scan-binaries         || rc=1
 python3 -I tools/aw.py check-cargo           || rc=1
