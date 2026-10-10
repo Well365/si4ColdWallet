@@ -1,0 +1,9 @@
+# 由 tools/bootstrap/install-toolchain.sh 生成（本机信息，供复核）。
+rust_version = "1.99.0"
+rustc = "rustc 1.99.0 (b940084d7 2026-09-28)"
+dist_date = "2026-10-01"
+rust_signing_key_fpr = "108F66205EAEB0AAA8DD5E1C85AB96E6FA1BE5FE"
+components = "rustc,cargo,rust-std-aarch64-apple-darwin,clippy-preview,rustfmt-preview"
+ios_targets = "aarch64-apple-ios aarch64-apple-ios-sim"
+xcode = "Xcode 26.6 Build version 17F113"
+apple_clang = "Apple clang version 21.0.0 (clang-2100.1.1.101)"

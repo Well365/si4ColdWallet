@@ -1,0 +1,5 @@
+// 观察机 C 接口（决策 D2）。
+module AWWatchC {
+    header "../../../core/crates/aw-ffi-watch/include/aw_watch.h"
+    export *
+}

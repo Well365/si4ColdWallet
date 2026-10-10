@@ -1,0 +1,11 @@
+[package]
+name = "aw-common"
+description = "公共工具：秘密数据清零、十六进制。零第三方依赖。"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true

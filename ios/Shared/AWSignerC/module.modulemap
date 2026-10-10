@@ -1,0 +1,5 @@
+// 把手写的 C 头文件暴露给 Swift（决策 D2）。头文件只有一份，位于 Rust crate 内。
+module AWSignerC {
+    header "../../../core/crates/aw-ffi-signer/include/aw_signer.h"
+    export *
+}

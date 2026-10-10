@@ -1,0 +1,15 @@
+[package]
+name = "aw-ffi-common"
+description = "两个 FFI 库共用的部分：缓冲区交接、UR 二维码编解码句柄（以宏生成 extern 函数，保证两边实现一致）。"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+aw-common.workspace = true
+aw-ur.workspace = true
+
+[lints]
+workspace = true

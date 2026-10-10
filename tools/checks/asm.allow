@@ -1,0 +1,10 @@
+# C11 登记：含汇编但不会为 aarch64 编译的文件。格式：sha256  路径；"#" 后为审查结论。
+# 文件内容一变（sha256 不符）就会失败，必须重新审查。
+7ece65abdb62bf3be32a625d4a9193fc1849ae430d3ccfe15dd577ebca5f7029  third_party/rust-secp256k1/secp256k1-sys/depend/secp256k1/cmake/source_arm32.s
+# ↑ 仅 CMake 探测 arm32 汇编器用；secp256k1-sys/build.rs 不编译它
+20322f663db29bac5027e81f1963e1103a1a9eaa80eb5c3e2ea642722ede544d  third_party/rust-secp256k1/secp256k1-sys/depend/secp256k1/examples/examples_util.h
+# ↑ 示例程序的编译器屏障（空汇编），examples/ 不在 build.rs 的编译列表中
+400158632d4590694d76b675048b061c37b9fac432b614da7e3884f8c078bc82  third_party/rust-secp256k1/secp256k1-sys/depend/secp256k1/src/asm/field_10x26_arm.s
+# ↑ arm32 专用汇编，build.rs 不编译；aarch64 不适用
+2246a7be8429ebfeff67ef3c65f60b384ea50ca189810dd7352654645f68ffd9  third_party/rust-secp256k1/secp256k1-sys/depend/secp256k1/src/scalar_4x64_impl.h
+# ↑ 汇编块全部在 #ifdef USE_ASM_X86_64 内；build.rs 从不定义该宏（已核对），aarch64 走纯 C 实现

@@ -1,0 +1,25 @@
+[package]
+name = "aw-chain-btc"
+description = "BTC（BIP84）交易：签名机审查/签名（feature signing），观察机构造/最终化（feature watch）。"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+# 只有签名机开启：引入私钥派生与签名代码
+signing = ["dep:aw-keys"]
+# 只有观察机开启：构造 PSBT、合并签名、提取交易
+watch = []
+
+[dependencies]
+aw-common.workspace = true
+aw-keys = { workspace = true, optional = true }
+aw-ur.workspace = true
+base58ck.workspace = true
+bitcoin.workspace = true
+
+[lints]
+workspace = true

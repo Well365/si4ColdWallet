@@ -1,0 +1,97 @@
+# airgap-wallet Rust 工作区
+# 规则 R2：所有第三方依赖只能来自 third_party/（上游 git 源码），通过下方 [patch.crates-io] 指向本地路径；
+# .cargo/config.toml 把 crates.io 替换成空目录并强制离线，漏掉任何一个依赖都会构建失败。
+
+[workspace]
+resolver = "2"
+members = [
+    "core/shims/hex_lit",
+    "core/crates/aw-common",
+    "core/crates/aw-bip39",
+    "core/crates/aw-keys",
+    "core/crates/aw-ur",
+    "core/crates/aw-chain-btc",
+    "core/crates/aw-chain-evm",
+    "core/crates/aw-chain-sol",
+    "core/crates/aw-chain-near",
+    "core/crates/aw-chain-tron",
+    "core/crates/aw-ffi-common",
+    "core/crates/aw-ffi-signer",
+    "core/crates/aw-ffi-watch",
+    "core/crates/aw-e2e",
+]
+exclude = ["third_party"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+rust-version = "1.99"
+
+[workspace.dependencies]
+aw-common = { path = "core/crates/aw-common" }
+aw-bip39 = { path = "core/crates/aw-bip39" }
+aw-keys = { path = "core/crates/aw-keys" }
+aw-ur = { path = "core/crates/aw-ur" }
+aw-chain-btc = { path = "core/crates/aw-chain-btc" }
+aw-chain-evm = { path = "core/crates/aw-chain-evm" }
+aw-chain-sol = { path = "core/crates/aw-chain-sol" }
+aw-chain-near = { path = "core/crates/aw-chain-near" }
+aw-chain-tron = { path = "core/crates/aw-chain-tron" }
+aw-ffi-common = { path = "core/crates/aw-ffi-common" }
+bitcoin = { version = "0.32.102", default-features = false, features = ["std"] }
+bitcoin_hashes = { version = "0.14.101", default-features = false, features = ["std"] }
+secp256k1 = { version = "0.29.1", default-features = false, features = ["std", "recovery"] }
+keccak = { version = "0.1.2", default-features = false }
+ed25519-compact = { version = "2.4.2", default-features = false }
+base58ck = { version = "0.1.101" }
+
+[workspace.lints.rust]
+unsafe_code = "deny"            # 只有 aw-common::secret 与 FFI 层可以显式放开
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "warn"
+disallowed_types = "deny"
+disallowed_methods = "deny"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false
+strip = "symbols"
+
+[profile.dev]
+panic = "abort"
+
+[patch.crates-io]
+# ---- rust-bitcoin @ ff5dc044（bitcoin-0.32.102）----
+bitcoin = { path = "third_party/rust-bitcoin/bitcoin" }
+bitcoin_hashes = { path = "third_party/rust-bitcoin/hashes" }
+bitcoin-io = { path = "third_party/rust-bitcoin/io" }
+bitcoin-units = { path = "third_party/rust-bitcoin/units" }
+base58ck = { path = "third_party/rust-bitcoin/base58" }
+# ---- rust-secp256k1 @ 1a1fc57（secp256k1-0.29.1，内附 libsecp256k1 已由 C7 核对）----
+secp256k1 = { path = "third_party/rust-secp256k1" }
+secp256k1-sys = { path = "third_party/rust-secp256k1/secp256k1-sys" }
+# ---- RustCrypto keccak @ b59a4d5a（keccak-v0.1.2，零依赖；P2a 引入，见 docs/06）----
+keccak = { path = "third_party/keccak/keccak" }
+# ---- ed25519-compact @ eb269493（tag 2.4.2，关闭全部可选依赖；见 docs/05 D26）----
+ed25519-compact = { path = "third_party/ed25519-compact" }
+# ---- 其他 ----
+hex-conservative = { path = "third_party/hex-conservative" }
+arrayvec = { path = "third_party/arrayvec" }
+bech32 = { path = "third_party/rust-bech32" }
+cc = { path = "third_party/cc-rs" }
+shlex = { path = "third_party/shlex" }
+# ---- 自写替代品（决策 D11）----
+hex_lit = { path = "core/shims/hex_lit" }
+# ---- 禁用桩（决策 D12）：可选依赖，永不启用；启用即编译失败 ----
+# bitcoin-io / bitcoin-units 的 "encoding?/std" 弱依赖特性要求锁文件中存在该包
+bitcoin-consensus-encoding = { path = "core/stubs/bitcoin-consensus-encoding" }

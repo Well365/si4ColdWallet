@@ -1,0 +1,94 @@
+/*
+ * aw_watch.h —— 观察机 Rust 核心的 C 接口（手写，决策 D2）。接口版本 2。
+ * 本库只含公钥与交易构造代码，不含任何私钥代码。约定同 aw_signer.h。
+ */
+#ifndef AW_WATCH_H
+#define AW_WATCH_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define AW_OK                    0
+#define AW_ERR_NULL_POINTER     -1
+#define AW_ERR_BAD_ARGUMENT     -2
+#define AW_ERR_STATE           -11
+#define AW_ERR_UR              -20
+#define AW_ERR_UR_OTHER_SET    -21
+#define AW_ERR_UR_TYPE         -22
+#define AW_ERR_TX              -30
+#define AW_ERR_TX_REJECT_BASE -100
+#define AW_ERR_EVM_REJECT_BASE -300
+
+typedef struct AwWatch AwWatch;
+typedef struct AwPending AwPending;
+typedef struct AwUrEncoder AwUrEncoder;
+typedef struct AwUrDecoder AwUrDecoder;
+typedef struct AwEvmAccount AwEvmAccount;
+typedef struct AwEvmPending AwEvmPending;
+
+uint32_t aw_watch_abi_version(void);
+void     aw_buf_free(uint8_t *ptr, size_t len);
+
+/* ---- 账户 ---- */
+int32_t  aw_watch_from_decoder(const AwUrDecoder *d, AwWatch **out);
+int32_t  aw_watch_from_ur(const uint8_t *s, size_t len, AwWatch **out);
+int32_t  aw_watch_to_ur(const AwWatch *w, uint8_t **out, size_t *out_len);
+void     aw_watch_free(AwWatch *w);
+uint32_t aw_watch_fingerprint(const AwWatch *w);
+uint8_t  aw_watch_is_testnet(const AwWatch *w);
+int32_t  aw_watch_address(const AwWatch *w, uint8_t change, uint32_t index, uint8_t **out, size_t *out_len);
+
+/* ---- 付款 ----
+ * utxos：u32 个数，然后每个 u8 change、u32 index、u32 vout、u32 交易长度、交易原始字节（全部大端） */
+int32_t  aw_watch_build_payment(const AwWatch *w, const uint8_t *utxos, size_t utxos_len,
+                                const uint8_t *to, size_t to_len, uint64_t amount_sat,
+                                uint64_t fee_rate_sat_vb, uint32_t change_index,
+                                AwPending **out_pending, uint8_t **out_json, size_t *out_json_len);
+int32_t  aw_pending_encoder(const AwPending *p, AwUrEncoder **out);
+int32_t  aw_pending_finalize(const AwWatch *w, const AwPending *p, const uint8_t *signed_psbt, size_t len,
+                             uint8_t **out_tx_hex, size_t *out_len);
+void     aw_pending_free(AwPending *p);
+
+/* ---- EVM（ETH、BNB Smart Chain 等，账户 m/44'/60'/0'）----
+ * 金额一律为 32 字节大端整数（最小单位：wei 或代币最小单位）。 */
+int32_t  aw_evm_from_decoder(const AwUrDecoder *d, AwEvmAccount **out);
+int32_t  aw_evm_from_ur(const uint8_t *s, size_t len, AwEvmAccount **out);
+int32_t  aw_evm_to_ur(const AwEvmAccount *a, uint8_t **out, size_t *out_len);
+void     aw_evm_free(AwEvmAccount *a);
+uint32_t aw_evm_fingerprint(const AwEvmAccount *a);
+int32_t  aw_evm_address(const AwEvmAccount *a, uint32_t index, uint8_t **out, size_t *out_len);
+int32_t  aw_evm_parse_amount(const uint8_t *s, size_t len, uint32_t decimals, uint8_t *out32);
+int32_t  aw_evm_format_quantity(const uint8_t *hex, size_t len, uint32_t decimals, uint8_t **out, size_t *out_len);
+/* token_len == 0：原生币；否则 token 为 ERC-20 合约地址文本。out_json 为与签名机相同的显示模型 */
+int32_t  aw_evm_build_transfer(const AwEvmAccount *a, uint32_t index, uint64_t chain_id, uint64_t nonce,
+                               const uint8_t *max_priority_fee32, const uint8_t *max_fee32, uint64_t gas_limit,
+                               const uint8_t *to, size_t to_len, const uint8_t *value32,
+                               const uint8_t *token, size_t token_len, const uint8_t *request_id16,
+                               AwEvmPending **out_pending, uint8_t **out_json, size_t *out_json_len);
+int32_t  aw_evm_pending_encoder(const AwEvmPending *p, AwUrEncoder **out);
+/* d：已收齐 eth-signature 的解码器；输出 "0x…" 原始交易，可直接 eth_sendRawTransaction */
+int32_t  aw_evm_pending_finalize(const AwEvmAccount *a, const AwEvmPending *p, const AwUrDecoder *d,
+                                 uint8_t **out_hex, size_t *out_len);
+void     aw_evm_pending_free(AwEvmPending *p);
+/* "0x…" 原始交易的交易哈希（核对节点返回值） */
+int32_t  aw_evm_tx_hash(const uint8_t *hex, size_t len, uint8_t **out, size_t *out_len);
+
+/* ---- 动画二维码 ---- */
+AwUrDecoder *aw_ur_decoder_new(void);
+void     aw_ur_decoder_free(AwUrDecoder *d);
+int32_t  aw_ur_decoder_receive(AwUrDecoder *d, const uint8_t *s, size_t len);
+int32_t  aw_ur_decoder_progress(const AwUrDecoder *d, size_t *got, size_t *total);
+int32_t  aw_ur_decoder_take_psbt(const AwUrDecoder *d, uint8_t **out, size_t *out_len);
+void     aw_ur_encoder_free(AwUrEncoder *e);
+int32_t  aw_ur_encoder_next(AwUrEncoder *e, uint8_t **out, size_t *out_len);
+size_t   aw_ur_encoder_seq_len(const AwUrEncoder *e);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* AW_WATCH_H */

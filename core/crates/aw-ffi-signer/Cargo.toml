@@ -1,0 +1,33 @@
+[package]
+name = "aw-ffi-signer"
+description = "签名机的 C 接口（决策 D2：手写 C ABI，不用 UniFFI）。编译为 iOS 静态库。"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "aw_signer"
+# 只产出静态库：同时产出 rlib 时，release + LTO 会丢掉 #[no_mangle] 导出（P1 实测发现，决策 D13）
+crate-type = ["staticlib"]
+
+[dependencies]
+aw-common.workspace = true
+aw-bip39.workspace = true
+aw-keys.workspace = true
+aw-ur.workspace = true
+aw-ffi-common.workspace = true
+aw-chain-btc = { workspace = true, features = ["signing"] }
+aw-chain-evm = { workspace = true, features = ["signing"] }
+aw-chain-sol.workspace = true
+aw-chain-near.workspace = true
+aw-chain-tron.workspace = true
+bitcoin.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+aw-chain-btc = { workspace = true, features = ["signing", "watch"] }
+aw-chain-evm = { workspace = true, features = ["signing", "watch"] }

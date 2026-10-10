@@ -1,0 +1,29 @@
+[package]
+name = "aw-ffi-watch"
+description = "观察机的 C 接口。只依赖公钥与交易构造代码；不依赖任何种子/私钥相关 crate（决策 D1）。"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "aw_watch"
+crate-type = ["staticlib"]
+
+[dependencies]
+aw-common.workspace = true
+aw-ur.workspace = true
+aw-ffi-common.workspace = true
+aw-chain-btc = { workspace = true, features = ["watch"] }
+aw-chain-evm = { workspace = true, features = ["watch"] }
+bitcoin.workspace = true
+
+[dev-dependencies]
+aw-bip39.workspace = true
+aw-keys.workspace = true
+aw-chain-btc = { workspace = true, features = ["signing", "watch"] }
+aw-chain-evm = { workspace = true, features = ["signing", "watch"] }
+
+[lints]
+workspace = true

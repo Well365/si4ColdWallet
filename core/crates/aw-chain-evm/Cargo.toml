@@ -1,0 +1,28 @@
+[package]
+name = "aw-chain-evm"
+description = "EVM 链（ETH、BNB Chain 等）：签名机审查/签名（feature signing），观察机构造/拼装（feature watch）。"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+# 只有签名机开启：引入私钥派生与签名代码
+signing = ["dep:aw-keys"]
+# 只有观察机开启：构造交易、拼装已签交易
+watch = []
+
+[dependencies]
+aw-common.workspace = true
+aw-keys = { workspace = true, optional = true }
+aw-ur.workspace = true
+# 只用其中的 BIP32 与 secp256k1（libsecp256k1 已由 C7 核对上游）
+bitcoin.workspace = true
+# 打开 recovery：以太坊签名需要可恢复公钥的 ECDSA
+secp256k1.workspace = true
+keccak.workspace = true
+
+[lints]
+workspace = true

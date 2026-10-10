@@ -1,0 +1,23 @@
+[package]
+name = "aw-e2e"
+description = "端到端测试：签名机与观察机的 Rust 核心通过 UR 动画二维码完成 BTC / EVM 交易。只含测试。"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dev-dependencies]
+aw-bip39.workspace = true
+aw-keys.workspace = true
+aw-ur.workspace = true
+aw-chain-btc = { workspace = true, features = ["signing", "watch"] }
+aw-chain-evm = { workspace = true, features = ["signing", "watch"] }
+aw-common.workspace = true
+aw-chain-sol.workspace = true
+aw-chain-near.workspace = true
+aw-chain-tron.workspace = true
+bitcoin.workspace = true
+
+[lints]
+workspace = true

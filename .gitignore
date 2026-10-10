@@ -1,0 +1,7 @@
+/target/
+/build/
+*.xcuserstate
+xcuserdata/
+DerivedData/
+.DS_Store
+/tools/repro/out/

@@ -1,0 +1,11 @@
+# 核心代码中禁止出现任何网络与进程能力（威胁 T13、规则 R3 C4）
+disallowed-types = [
+    { path = "std::net::TcpStream", reason = "签名核心不得联网" },
+    { path = "std::net::TcpListener", reason = "签名核心不得联网" },
+    { path = "std::net::UdpSocket", reason = "签名核心不得联网" },
+    { path = "std::process::Command", reason = "核心不得启动进程" },
+]
+disallowed-methods = [
+    { path = "std::net::ToSocketAddrs::to_socket_addrs", reason = "签名核心不得联网" },
+    { path = "std::env::var", reason = "核心行为不得受环境变量影响" },
+]

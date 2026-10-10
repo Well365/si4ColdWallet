@@ -1,0 +1,15 @@
+[package]
+name = "aw-bip39"
+description = "BIP39 自实现（决策 D5）：熵 ↔ 助记词序号 ↔ 种子。哈希原语来自 rust-bitcoin 的 bitcoin_hashes。"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+aw-common.workspace = true
+bitcoin_hashes.workspace = true
+
+[lints]
+workspace = true

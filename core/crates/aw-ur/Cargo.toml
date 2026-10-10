@@ -1,0 +1,14 @@
+[package]
+name = "aw-ur"
+description = "UR 动画二维码编解码自实现（决策 D5）：bytewords、CRC32、最小 CBOR、喷泉码。用 Blockchain Commons 参考实现的测试向量校验。"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bitcoin_hashes.workspace = true
+
+[lints]
+workspace = true

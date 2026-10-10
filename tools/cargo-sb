@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# 在 macOS 沙箱里运行 cargo（P1 安全复核 H1、复核三 H1）。build.rs 与过程宏会在本机执行，
+# 这里尽量缩小它们能做的事；但 sandbox-exec 不是安全边界的全部，见 docs/02「构建时代码」：
+#  - 禁止一切网络
+#  - 只允许写入：仓库的 target/、CARGO_HOME、/dev 下的少数设备（临时目录也放进 target/）
+#  - 禁止 ioctl（除 /dev/null 等）、禁止向其他进程发信号
+#  - 只允许查找编译所需的少数系统服务（挡住 LaunchServices / launchctl / Apple Events 等借系统服务逃出沙箱的路）
+#  - 只允许执行工具链、Xcode 与 target/ 中的程序
+#  - 在新会话中运行、没有控制终端、标准输入输出都不是终端（挡住 TIOCSTI 向用户终端注入按键）
+#  - 结束后清理会话中残留的进程；有残留即失败（复核四 H1，见 tools/sb-session.py）
+# 用法：tools/cargo-sb build -p aw-ffi-signer --release --locked --target aarch64-apple-ios
+set -euo pipefail
+[ -n "${AW_REPO:-}" ] && [ -n "${AW_TOOLROOT:-}" ] || { echo "[cargo-sb] 先 source tools/env.sh"; exit 1; }
+repo="$(cd "$AW_REPO" && pwd -P)"
+tools_dir="$(cd "$(dirname "$0")" && pwd -P)"
+target_dir="$repo/target"
+[ -z "${CARGO_TARGET_DIR:-}" ] || target_dir="$(mkdir -p "$CARGO_TARGET_DIR" && cd "$CARGO_TARGET_DIR" && pwd -P)"
+case "$target_dir/" in "$repo/target/"*) ;; *) echo "[cargo-sb] target 目录必须在 $repo/target 内"; exit 1 ;; esac
+# Cargo 在 target 不存在时会先在仓库根目录建临时目录，所以先建好；临时文件也只放 target/ 内
+mkdir -p "$repo/target/.tmp"
+toolroot="$(cd "$AW_TOOLROOT" && pwd -P)"
+cargo_home="$(mkdir -p "$CARGO_HOME" && cd "$CARGO_HOME" && pwd -P)"
+devdir="$(/usr/bin/xcode-select -p)"
+devdir="$(cd "$devdir/../.." && pwd -P)"   # /Applications/Xcode.app
+case "$devdir" in *.app) ;; *) echo "[cargo-sb] xcode-select 没有指向 Xcode.app：$devdir"; exit 1 ;; esac
+cargo_bin="$toolroot/rust/bin/cargo"
+[ -x "$cargo_bin" ] || { echo "[cargo-sb] 找不到工具链中的 cargo：$cargo_bin"; exit 1; }
+
+profile="(version 1)
+(allow default)
+(deny network*)
+(deny file-write*)
+(allow file-write*
+  (subpath \"$repo/target\")
+  (subpath \"$cargo_home\")
+  (literal \"/dev/null\") (literal \"/dev/dtracehelper\") (regex #\"^/dev/fd/\"))
+(deny file-ioctl)
+(allow file-ioctl (literal \"/dev/null\") (literal \"/dev/dtracehelper\"))
+(deny signal (target others))
+(deny mach-lookup)
+(allow mach-lookup
+  (global-name \"com.apple.system.opendirectoryd.libinfo\")
+  (global-name \"com.apple.system.notification_center\")
+  (global-name \"com.apple.logd\")
+  (global-name \"com.apple.diagnosticd\"))
+(deny process-exec)
+(allow process-exec
+  (subpath \"$toolroot\")
+  (subpath \"$repo/target\")
+  (subpath \"$devdir\")
+  (literal \"/usr/bin/xcrun\") (literal \"/usr/bin/cc\") (literal \"/usr/bin/c++\")
+  (literal \"/usr/bin/clang\") (literal \"/usr/bin/clang++\") (literal \"/usr/bin/ar\")
+  (literal \"/usr/bin/ranlib\") (literal \"/usr/bin/ld\") (literal \"/usr/bin/libtool\")
+  (literal \"/usr/bin/xcode-select\") (literal \"/bin/sh\") (literal \"/bin/bash\"))"
+
+export TMPDIR="$repo/target/.tmp/"
+# 新会话 + 无控制终端；输出经管道交给 cat，沙箱内进程拿不到任何终端文件描述符
+/usr/bin/python3 -I "$tools_dir/sb-session.py" \
+  /usr/bin/sandbox-exec -p "$profile" "$cargo_bin" "$@" </dev/null 2>&1 | /bin/cat

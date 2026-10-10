@@ -1,0 +1,4 @@
+ce6dddc886364f8d786514771212cebe9b731ba82d6b859951c6b0ccc516b6a2  channel-rust-1.99.0.toml
+0306e4813a6fa7d4353de68f0bb9a8216b4ca04b1cdee409d0e301f958e55dd2  rust-1.99.0-aarch64-apple-darwin.tar.xz
+1d566dbc70edab923310f9579aa1ca2563703e154c3217ff049b7021ff080a94  rust-std-1.99.0-aarch64-apple-ios.tar.xz
+3f8d01bdbcdccfc708e7c93faa658895a6e79729a8cf0b2f747477fe23c43e91  rust-std-1.99.0-aarch64-apple-ios-sim.tar.xz

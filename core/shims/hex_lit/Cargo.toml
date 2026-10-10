@@ -1,0 +1,11 @@
+[package]
+name = "hex_lit"
+# 与 rust-bitcoin 要求的版本号一致，用于 [patch.crates-io] 替换
+version = "0.1.1"
+edition = "2021"
+license = "MIT"
+description = "airgap-wallet 自写的 hex_lit 替代品（决策 D11）"
+publish = false
+
+[lib]
+path = "src/lib.rs"

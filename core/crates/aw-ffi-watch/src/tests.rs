@@ -1,0 +1,335 @@
+//! 通过 C 接口测试观察机流程（签名一侧用 aw-chain-btc 的 signing 功能模拟签名机）。
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic
+)]
+
+use super::*;
+use aw_chain_btc::sign::{sign_psbt, SigningAccount};
+use bitcoin::secp256k1::All;
+use bitcoin::{absolute, transaction, Amount, Network, OutPoint, TxIn, TxOut};
+
+const MNEMONIC: &str =
+    "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
+fn take(ptr: *mut u8, len: usize) -> Vec<u8> {
+    let v = unsafe { core::slice::from_raw_parts(ptr, len) }.to_vec();
+    unsafe { aw_buf_free(ptr, len) };
+    v
+}
+
+fn signer() -> (Secp256k1<All>, SigningAccount) {
+    let secp = Secp256k1::new();
+    let seed = aw_bip39::Mnemonic::parse(MNEMONIC)
+        .unwrap()
+        .to_seed("")
+        .unwrap();
+    let master = aw_keys::master(&seed, Network::Testnet).unwrap();
+    let s = SigningAccount::from_master(&secp, &master, Network::Testnet, 0).unwrap();
+    (secp, s)
+}
+
+fn watch_from(s: &SigningAccount) -> *mut AwWatch {
+    let ur =
+        aw_ur::ur::encode(&encode_hdkey(&account_to_hdkey(&s.account), Style::Legacy).unwrap());
+    let mut w = core::ptr::null_mut();
+    assert_eq!(
+        unsafe { aw_watch_from_ur(ur.as_ptr(), ur.len(), &mut w) },
+        AW_OK
+    );
+    w
+}
+
+fn utxo_blob(txs: &[(&Transaction, u32, bool, u32)]) -> Vec<u8> {
+    let mut b = (txs.len() as u32).to_be_bytes().to_vec();
+    for (tx, vout, change, index) in txs {
+        let raw = serialize(*tx);
+        b.push(u8::from(*change));
+        b.extend_from_slice(&index.to_be_bytes());
+        b.extend_from_slice(&vout.to_be_bytes());
+        b.extend_from_slice(&(raw.len() as u32).to_be_bytes());
+        b.extend_from_slice(&raw);
+    }
+    b
+}
+
+#[test]
+fn import_address_build_finalize() {
+    let (secp, s) = signer();
+    let w = watch_from(&s);
+    assert_eq!(unsafe { aw_watch_is_testnet(w) }, 1);
+    assert_eq!(
+        unsafe { aw_watch_fingerprint(w) },
+        u32::from_be_bytes(s.account.master_fingerprint.to_bytes())
+    );
+
+    let (mut p, mut l) = (core::ptr::null_mut(), 0usize);
+    assert_eq!(unsafe { aw_watch_address(w, 0, 0, &mut p, &mut l) }, AW_OK);
+    let addr = String::from_utf8(take(p, l)).unwrap();
+    assert_eq!(
+        addr,
+        s.account.address(&secp, false, 0).unwrap().to_string()
+    );
+    assert!(addr.starts_with("tb1q"));
+
+    // 资金交易
+    let funding = Transaction {
+        version: transaction::Version::TWO,
+        lock_time: absolute::LockTime::ZERO,
+        input: vec![TxIn {
+            previous_output: OutPoint::null(),
+            ..TxIn::default()
+        }],
+        output: vec![TxOut {
+            value: Amount::from_sat(70_000),
+            script_pubkey: s.account.script_for(&secp, false, 0).unwrap(),
+        }],
+    };
+    let blob = utxo_blob(&[(&funding, 0, false, 0)]);
+    let to = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx";
+    let mut pending = core::ptr::null_mut();
+    let (mut jp, mut jl) = (core::ptr::null_mut(), 0usize);
+    let rc = unsafe {
+        aw_watch_build_payment(
+            w,
+            blob.as_ptr(),
+            blob.len(),
+            to.as_ptr(),
+            to.len(),
+            40_000,
+            4,
+            0,
+            &mut pending,
+            &mut jp,
+            &mut jl,
+        )
+    };
+    assert_eq!(rc, AW_OK);
+    let summary = String::from_utf8(take(jp, jl)).unwrap();
+    assert!(summary.contains("\"amount_sat\":40000"), "{summary}");
+
+    // 观察机 → 二维码 → 签名机（模拟）→ 观察机
+    let mut enc = core::ptr::null_mut();
+    assert_eq!(unsafe { aw_pending_encoder(pending, &mut enc) }, AW_OK);
+    let d = aw_ur_decoder_new();
+    loop {
+        let (mut fp, mut fl) = (core::ptr::null_mut(), 0usize);
+        assert_eq!(unsafe { aw_ur_encoder_next(enc, &mut fp, &mut fl) }, AW_OK);
+        let f = take(fp, fl);
+        if unsafe { aw_ur_decoder_receive(d, f.as_ptr(), f.len()) } == 1 {
+            break;
+        }
+    }
+    let (mut pp, mut pl) = (core::ptr::null_mut(), 0usize);
+    assert_eq!(
+        unsafe { aw_ur_decoder_take_psbt(d, &mut pp, &mut pl) },
+        AW_OK
+    );
+    let mut psbt = Psbt::deserialize(&take(pp, pl)).unwrap();
+    sign_psbt(&secp, &s, &mut psbt).unwrap();
+    let signed = psbt.serialize();
+
+    let (mut hp, mut hl) = (core::ptr::null_mut(), 0usize);
+    assert_eq!(
+        unsafe { aw_pending_finalize(w, pending, signed.as_ptr(), signed.len(), &mut hp, &mut hl) },
+        AW_OK
+    );
+    let hex = String::from_utf8(take(hp, hl)).unwrap();
+    let tx: Transaction = deserialize(&aw_common::hex::decode(&hex).unwrap()).unwrap();
+    assert_eq!(tx.input.len(), 1);
+    assert_eq!(tx.input[0].witness.len(), 2);
+
+    // 篡改后的签名结果被拒绝
+    let mut tampered = psbt.clone();
+    tampered.unsigned_tx.output[0].value = Amount::from_sat(1);
+    let t = tampered.serialize();
+    assert_eq!(
+        unsafe { aw_pending_finalize(w, pending, t.as_ptr(), t.len(), &mut hp, &mut hl) },
+        AW_ERR_TX_REJECT_BASE - 17
+    );
+
+    unsafe {
+        aw_ur_encoder_free(enc);
+        aw_ur_decoder_free(d);
+        aw_pending_free(pending);
+        aw_watch_free(w);
+    }
+}
+
+#[test]
+fn rejects_bad_inputs() {
+    let (_, s) = signer();
+    let w = watch_from(&s);
+    let mut pending = core::ptr::null_mut();
+    let (mut jp, mut jl) = (core::ptr::null_mut(), 0usize);
+    let to = "bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu"; // 主网地址，网络不符
+    let blob = [0u8, 0, 0, 1, 9];
+    let rc = unsafe {
+        aw_watch_build_payment(
+            w,
+            blob.as_ptr(),
+            blob.len(),
+            to.as_ptr(),
+            to.len(),
+            1000,
+            1,
+            0,
+            &mut pending,
+            &mut jp,
+            &mut jl,
+        )
+    };
+    assert_eq!(rc, AW_ERR_BAD_ARGUMENT);
+    assert!(pending.is_null());
+    let mut w2 = core::ptr::null_mut();
+    let bad = "ur:crypto-hdkey/aeae";
+    assert!(unsafe { aw_watch_from_ur(bad.as_ptr(), bad.len(), &mut w2) } < 0);
+    assert!(w2.is_null());
+    unsafe { aw_watch_free(w) };
+}
+
+/// 把编码器的帧逐个喂给新解码器，直到完成
+fn pump(enc: *mut AwUrEncoder) -> *mut AwUrDecoder {
+    let d = aw_ur_decoder_new();
+    for _ in 0..10_000 {
+        let (mut p, mut l) = (core::ptr::null_mut(), 0usize);
+        assert_eq!(unsafe { aw_ur_encoder_next(enc, &mut p, &mut l) }, AW_OK);
+        let frame = take(p, l);
+        if unsafe { aw_ur_decoder_receive(d, frame.as_ptr(), frame.len()) } == 1 {
+            unsafe { aw_ur_encoder_free(enc) };
+            return d;
+        }
+    }
+    panic!("未完成");
+}
+
+#[test]
+fn evm_import_build_and_finalize() {
+    use aw_chain_evm::request::{decode_request, encode_signature};
+    use evm::*;
+    let secp = Secp256k1::new();
+    let seed = aw_bip39::Mnemonic::parse(MNEMONIC)
+        .unwrap()
+        .to_seed("")
+        .unwrap();
+    let master = aw_keys::master(&seed, Network::Testnet).unwrap();
+    let signer = aw_chain_evm::sign::EvmSigner::from_master(&secp, &master).unwrap();
+    let ur = aw_ur::ur::encode(
+        &encode_hdkey(
+            &aw_chain_evm::account_ur::account_to_hdkey(&signer.account),
+            Style::Legacy,
+        )
+        .unwrap(),
+    );
+    let mut a = core::ptr::null_mut();
+    assert_eq!(
+        unsafe { aw_evm_from_ur(ur.as_ptr(), ur.len(), &mut a) },
+        AW_OK
+    );
+    let (mut p, mut l) = (core::ptr::null_mut(), 0usize);
+    assert_eq!(unsafe { aw_evm_address(a, 0, &mut p, &mut l) }, AW_OK);
+    assert_eq!(take(p, l), b"0x9858EfFD232B4033E47d90003D41EC34EcaEda94");
+    // BTC 账户不能当 EVM 账户导入
+    let btc = aw_ur::ur::encode(
+        &encode_hdkey(&account_to_hdkey(&signer_btc().account), Style::Legacy).unwrap(),
+    );
+    let mut bad = core::ptr::null_mut();
+    assert!(unsafe { aw_evm_from_ur(btc.as_ptr(), btc.len(), &mut bad) } < 0);
+    assert!(bad.is_null());
+
+    let mut value = [0u8; 32];
+    assert_eq!(
+        unsafe { aw_evm_parse_amount(b"0.01".as_ptr(), 4, 18, value.as_mut_ptr()) },
+        AW_OK
+    );
+    assert_eq!(
+        unsafe { aw_evm_parse_amount(b"0.0.1".as_ptr(), 5, 18, value.as_mut_ptr()) },
+        AW_ERR_BAD_ARGUMENT
+    );
+    let (mut p, mut l) = (core::ptr::null_mut(), 0usize);
+    assert_eq!(
+        unsafe { aw_evm_format_quantity(b"0x2386f26fc10000".as_ptr(), 16, 18, &mut p, &mut l) },
+        AW_OK
+    );
+    assert_eq!(take(p, l), b"0.01");
+    let mut prio = [0u8; 32];
+    let mut max = [0u8; 32];
+    prio[31] = 1;
+    max[28..].copy_from_slice(&30_000_000_000u64.to_be_bytes()[4..]);
+    let to = b"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed";
+    let (mut pending, mut j, mut jl) = (core::ptr::null_mut(), core::ptr::null_mut(), 0usize);
+    let rc = unsafe {
+        aw_evm_build_transfer(
+            a,
+            0,
+            11_155_111,
+            4,
+            prio.as_ptr(),
+            max.as_ptr(),
+            21_000,
+            to.as_ptr(),
+            to.len(),
+            value.as_ptr(),
+            core::ptr::null(),
+            0,
+            [9u8; 16].as_ptr(),
+            &mut pending,
+            &mut j,
+            &mut jl,
+        )
+    };
+    assert_eq!(rc, AW_OK);
+    let json = String::from_utf8(take(j, jl)).unwrap();
+    assert!(json.contains("0.01 SepoliaETH"), "{json}");
+
+    // 签名机一侧（用签名代码模拟）
+    let mut enc = core::ptr::null_mut();
+    assert_eq!(unsafe { aw_evm_pending_encoder(pending, &mut enc) }, AW_OK);
+    let d = pump(enc);
+    let req = decode_request(unsafe { aw_ffi_common::decoded_ur(d) }.unwrap()).unwrap();
+    unsafe { aw_ur_decoder_free(d) };
+    let (_, sig) = aw_chain_evm::sign::sign(&secp, &signer, &req).unwrap();
+    let back = pump(aw_ffi_common::new_encoder(encode_signature(&sig).unwrap()).unwrap());
+    let (mut h, mut hl) = (core::ptr::null_mut(), 0usize);
+    assert_eq!(
+        unsafe { aw_evm_pending_finalize(a, pending, back, &mut h, &mut hl) },
+        AW_OK
+    );
+    let hex = String::from_utf8(take(h, hl)).unwrap();
+    assert!(hex.starts_with("0x02f8"), "{hex}");
+    unsafe { aw_ur_decoder_free(back) };
+
+    // 错误的地址文本、未知合约
+    let (mut p2, mut j2, mut jl2) = (core::ptr::null_mut(), core::ptr::null_mut(), 0usize);
+    let bad_to = b"0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAeD"; // 校验和错误
+    let rc = unsafe {
+        aw_evm_build_transfer(
+            a,
+            0,
+            1,
+            0,
+            prio.as_ptr(),
+            max.as_ptr(),
+            21_000,
+            bad_to.as_ptr(),
+            bad_to.len(),
+            value.as_ptr(),
+            core::ptr::null(),
+            0,
+            [9u8; 16].as_ptr(),
+            &mut p2,
+            &mut j2,
+            &mut jl2,
+        )
+    };
+    assert_eq!(rc, AW_ERR_BAD_ARGUMENT);
+    assert!(p2.is_null() && j2.is_null());
+    unsafe { aw_evm_pending_free(pending) };
+    unsafe { aw_evm_free(a) };
+}
+
+fn signer_btc() -> SigningAccount {
+    signer().1
+}

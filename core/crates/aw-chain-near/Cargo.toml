@@ -1,0 +1,15 @@
+[package]
+name = "aw-chain-near"
+description = "NEAR：账户与公钥格式（P2 先做地址；交易审查与签名在 P2d）。"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+aw-common.workspace = true
+base58ck.workspace = true
+
+[lints]
+workspace = true

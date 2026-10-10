@@ -1,0 +1,20 @@
+[package]
+name = "aw-keys"
+description = "密钥派生：BIP32（secp256k1）与 BIP84 地址。椭圆曲线运算来自 libsecp256k1。"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+aw-common.workspace = true
+bitcoin.workspace = true
+# SLIP-10 Ed25519 公钥（Solana、NEAR）
+ed25519-compact.workspace = true
+
+[dev-dependencies]
+aw-bip39.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,10 @@
+# 规则 R2.1：构建永远离线；crates.io 被替换为一个空目录，
+# 任何没有通过 [patch.crates-io] 指向本地源码的依赖都会直接解析失败。
+[net]
+offline = true
+
+[source.crates-io]
+replace-with = "aw-no-registry"
+
+[source.aw-no-registry]
+directory = "core/no-registry"
