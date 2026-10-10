@@ -157,6 +157,31 @@ fn chain_rows(disp: &mut Display, chain_id: Option<u64>) {
     }
 }
 
+/// Safe 多签的交易签名（SafeTx）。多签真正起授权作用的就是这份签名，所以链上 execTransaction 的规则在这里同样适用：
+/// operation 1 = DELEGATECALL，可以改写多签合约本身，默认拒签（docs/01 T9、D23）；缺少或无法解析的 operation 同样拒签。
+fn safe_tx(disp: &mut Display, ctx: &Ctx) -> Result<(), EvmError> {
+    match uint(ctx.msg, "operation").and_then(|o| o.to_u64()) {
+        Some(0) => {}
+        _ => return Err(EvmError::DelegateCall),
+    }
+    disp.title = "Safe 多签交易（SafeTx）".to_owned();
+    if let Some(safe) = ctx.contract {
+        disp.row("多签合约", checksum_address(&safe), Style::Address);
+    }
+    if let Some(to) = addr(ctx.msg, "to") {
+        disp.row("调用目标", checksum_address(&to), Style::Address);
+    }
+    if let Some(v) = uint(ctx.msg, "value") {
+        disp.row("转出金额（wei）", v.to_decimal(), Style::Amount);
+    }
+    disp.warn(
+        Level::Danger,
+        "这是 Safe 多签交易的签名：达到阈值后多签会按下面的 to、value、data 执行调用。\
+         只有逐项核对目标地址、金额与完整 data 后才继续",
+    );
+    Ok(())
+}
+
 pub fn describe(
     td: &TypedData,
     d: &Digest,
@@ -188,7 +213,13 @@ pub fn describe(
         own,
         msg: &d.leaves,
     };
-    if !typed_known::summarize(td, &ctx, &mut disp) {
+    let recognized = if td.primary == "SafeTx" {
+        safe_tx(&mut disp, &ctx)?;
+        true
+    } else {
+        typed_known::summarize(td, &ctx, &mut disp)
+    };
+    if !recognized {
         let p = td.primary.as_str();
         disp.title = format!("结构化签名（{p}）");
         disp.warn(
@@ -243,7 +274,9 @@ fn domain_rows(disp: &mut Display, dom: &[Leaf], chain_id: Option<u64>) {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
     use super::*;
+    use crate::eip712::TypedData;
 
     #[test]
     fn utc_time_known_values() {
@@ -265,5 +298,33 @@ mod tests {
             ("\"Hello, Bob!\"".to_owned(), false)
         );
         assert_eq!(leaf_text(&LeafValue::EmptyArray).0, "（空数组）");
+    }
+
+    /// Safe 多签的 SafeTx 结构化签名；operation 1 = DELEGATECALL
+    fn safe_tx_json(operation: u8) -> String {
+        format!(
+            r#"{{"types":{{"EIP712Domain":[{{"name":"chainId","type":"uint256"}},{{"name":"verifyingContract","type":"address"}}],"SafeTx":[{{"name":"to","type":"address"}},{{"name":"value","type":"uint256"}},{{"name":"data","type":"bytes"}},{{"name":"operation","type":"uint8"}},{{"name":"safeTxGas","type":"uint256"}},{{"name":"baseGas","type":"uint256"}},{{"name":"gasPrice","type":"uint256"}},{{"name":"gasToken","type":"address"}},{{"name":"refundReceiver","type":"address"}},{{"name":"nonce","type":"uint256"}}]}},"primaryType":"SafeTx","domain":{{"chainId":1,"verifyingContract":"0x1111111111111111111111111111111111111111"}},"message":{{"to":"0x2222222222222222222222222222222222222222","value":0,"data":"0x","operation":{operation},"safeTxGas":0,"baseGas":0,"gasPrice":0,"gasToken":"0x0000000000000000000000000000000000000000","refundReceiver":"0x0000000000000000000000000000000000000000","nonce":5}}}}"#
+        )
+    }
+
+    /// docs/01 T9、D23：Safe 的 DELEGATECALL 默认拒签——通过 EIP-712 SafeTx 签名的路径也必须拒
+    #[test]
+    fn safe_tx_delegatecall_is_refused() {
+        let td = TypedData::parse(&safe_tx_json(1)).unwrap();
+        let d = td.digest().unwrap();
+        assert_eq!(
+            describe(&td, &d, Some(1), &[0x33; 20], 0).unwrap_err(),
+            EvmError::DelegateCall
+        );
+    }
+
+    /// operation 0（普通 CALL）仍可签，但必须带高风险警告并标明是 Safe 多签交易
+    #[test]
+    fn safe_tx_call_is_shown_as_safe_transaction_with_strong_warning() {
+        let td = TypedData::parse(&safe_tx_json(0)).unwrap();
+        let d = td.digest().unwrap();
+        let disp = describe(&td, &d, Some(1), &[0x33; 20], 0).unwrap();
+        assert!(disp.has_danger(), "{:?}", disp.warnings);
+        assert!(disp.title.contains("Safe"), "{}", disp.title);
     }
 }

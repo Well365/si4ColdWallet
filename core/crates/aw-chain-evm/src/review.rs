@@ -137,10 +137,62 @@ fn approval_rows(d: &mut Display, chain_id: u64, token: &[u8; 20], a: U256, plai
     }
 }
 
-fn data_preview(data: &[u8]) -> String {
-    let shown = data.get(..64).unwrap_or(data);
-    let more = if data.len() > shown.len() { "…" } else { "" };
-    format!("{} 字节：0x{}{more}", data.len(), hex::encode(shown))
+/// 完整显示调用数据（T5、D25 承诺"完整显示原始内容"，不做截断）：每行 32 字节，便于与观察机逐段核对
+fn data_full(data: &[u8]) -> String {
+    let hex = hex::encode(data);
+    let lines = hex
+        .as_bytes()
+        .chunks(64)
+        .map(String::from_utf8_lossy)
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("{} 字节：0x{lines}", data.len())
+}
+
+/// Safe execTransaction 的内层调用：套用与顶层相同的识别与告警规则（T5：多一层包装不能变成盲签）
+fn inner_call_rows(
+    d: &mut Display,
+    chain_id: u64,
+    to: &[u8; 20],
+    value: U256,
+    data: &[u8],
+    symbol: &str,
+) -> Result<(), EvmError> {
+    d.row("内层目标", contract_label(chain_id, to), Style::Address);
+    if !value.is_zero() {
+        d.row("内层转出金额", amount(value, symbol), Style::Amount);
+    }
+    let call = abi::decode(data)?;
+    match (token_info(chain_id, to), &call) {
+        (_, Call::None) => d.row("内层操作", "原生币转账（无调用数据）", Style::Text),
+        (Some(_), Call::Transfer { to: rcpt, amount: a }) => {
+            d.row("内层操作", "代币转账", Style::Text);
+            d.row("内层收款地址", checksum_address(rcpt), Style::Address);
+            d.row("内层代币数量", token_amount(chain_id, to, *a), Style::Amount);
+        }
+        (_, Call::Approve { spender, amount: a })
+        | (_, Call::IncreaseAllowance { spender, amount: a }) => {
+            d.row("内层操作", "授权", Style::Text);
+            d.row("内层被授权方", checksum_address(spender), Style::Address);
+            approval_rows(d, chain_id, to, *a, matches!(call, Call::Approve { .. }));
+        }
+        (_, Call::SetApprovalForAll { operator, approved }) => {
+            d.row("内层操作", "setApprovalForAll", Style::Text);
+            d.row("内层被授权方", checksum_address(operator), Style::Address);
+            if *approved {
+                d.warn(Level::Danger, "内层调用把全部 NFT 的操作权授予被授权方");
+            }
+        }
+        (_, Call::Unknown { selector, .. }) => {
+            if let Some(s) = selector {
+                d.row("内层函数选择器", format!("0x{}", hex::encode(s)), Style::Data);
+            }
+            d.warn(Level::Danger, "内层调用无法识别：签名机看不懂多签实际会执行什么");
+        }
+        _ => d.warn(Level::Danger, "内层调用是不常见的合约操作，请逐项核对下面的数据"),
+    }
+    d.row("内层调用数据", data_full(data), Style::Data);
+    Ok(())
 }
 
 pub fn review<C: Verification>(
@@ -259,7 +311,7 @@ fn describe_tx(tx: &UnsignedTx, own: &[u8; 20], index: u32) -> Result<Display, E
     match (tx.to, &call) {
         (None, _) => {
             d.title = "部署合约".to_owned();
-            d.row("合约代码", data_preview(&tx.data), Style::Data);
+            d.row("合约代码", data_full(&tx.data), Style::Data);
             d.warn(
                 Level::Danger,
                 "这笔交易会部署一个新合约：请确认代码来源可信",
@@ -430,16 +482,27 @@ fn describe_tx(tx: &UnsignedTx, own: &[u8; 20], index: u32) -> Result<Display, E
             }
         }
         (Some(target), Call::Unknown { selector, .. }) => {
-            d.title = "合约调用".to_owned();
-            d.row("合约地址", checksum_address(&target), Style::Address);
-            if let Some(s) = selector {
-                d.row("函数选择器", format!("0x{}", hex::encode(s)), Style::Data);
+            if let Some((inner_to, inner_value, inner_data)) = abi::safe_exec_inner(&tx.data) {
+                d.title = "Safe 多签执行".to_owned();
+                d.row("多签合约", checksum_address(&target), Style::Address);
+                d.warn(
+                    Level::Danger,
+                    "这是对 Safe 多签合约的 execTransaction 调用：多签会按下面的内层调用执行，请逐项核对",
+                );
+                inner_call_rows(&mut d, tx.chain_id, &inner_to, inner_value, inner_data, &c.symbol)?;
+                d.row("调用数据", data_full(&tx.data), Style::Data);
+            } else {
+                d.title = "合约调用".to_owned();
+                d.row("合约地址", checksum_address(&target), Style::Address);
+                if let Some(s) = selector {
+                    d.row("函数选择器", format!("0x{}", hex::encode(s)), Style::Data);
+                }
+                d.row("调用数据", data_full(&tx.data), Style::Data);
+                d.warn(
+                    Level::Danger,
+                    "无法识别的合约调用：签名机看不懂它会做什么。只有完全信任该合约和这次操作时才继续",
+                );
             }
-            d.row("调用数据", data_preview(&tx.data), Style::Data);
-            d.warn(
-                Level::Danger,
-                "无法识别的合约调用：签名机看不懂它会做什么。只有完全信任该合约和这次操作时才继续",
-            );
         }
     }
     if tx.to == Some(PERMIT2) {

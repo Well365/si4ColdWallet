@@ -704,3 +704,91 @@ fn review_findings_regressions() {
         Err(EvmError::Overflow)
     );
 }
+
+/// 审计 P0-2（T5、D25）：未知合约的调用数据必须完整显示；Safe execTransaction 包着的内层调用必须被解析并按同样规则告警
+#[test]
+fn unknown_calldata_is_shown_in_full_and_nested_safe_exec_is_decoded() {
+    let secp = Secp256k1::new();
+    let s = signer(&secp);
+    let w = watcher_account(&s);
+    let addr_word = |a: &str| {
+        let mut x = [0u8; 32];
+        x[12..].copy_from_slice(&parse_address(a).unwrap());
+        x
+    };
+    let num = |v: u64| U256::from_u64(v).to_be_bytes();
+    let review_of = |to: &str, data: Vec<u8>| {
+        let req = build_request(
+            &secp,
+            &w,
+            0,
+            payment(1, to, 0, data),
+            DataType::TypedTx,
+            Some(1),
+            [13; 16],
+        )
+        .unwrap();
+        review(&secp, &s.account, &req).unwrap()
+    };
+    let nft = "0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359";
+
+    // 1. 300 字节的未知调用：显示的数据必须包含最后一个字节，且不得被省略号截断
+    let mut data = vec![0xde, 0xad, 0xbe, 0xef];
+    data.extend(std::iter::repeat_n(0xab, 295));
+    data.push(0x17);
+    let r = review_of(nft, data);
+    let shown = r
+        .display
+        .rows
+        .iter()
+        .find(|x| x.label == "调用数据")
+        .map(|x| x.value.clone())
+        .unwrap();
+    assert!(!shown.contains('…'), "{shown}");
+    assert!(shown.contains("300 字节"), "{shown}");
+    let flat: String = shown.chars().filter(|c| !c.is_whitespace()).collect();
+    assert!(flat.ends_with("abab17"), "{shown}");
+
+    // 2. Safe execTransaction(operation = 0) 包着对 USDT 的无限额 approve：内层必须被解析并标为高风险
+    let mut inner = aw_common::hex::decode("095ea7b3").unwrap();
+    inner.extend_from_slice(&addr_word(RECIPIENT));
+    inner.extend_from_slice(&[0xff; 32]);
+    assert_eq!(inner.len(), 68);
+    let mut exec = aw_common::hex::decode("6a761202").unwrap();
+    for word in [
+        addr_word(USDT_ETH), // to
+        num(0),              // value
+        num(320),            // data 偏移（10 个头部字）
+        num(0),              // operation = CALL
+        num(0),              // safeTxGas
+        num(0),              // baseGas
+        num(0),              // gasPrice
+        [0u8; 32],           // gasToken
+        [0u8; 32],           // refundReceiver
+        num(448),            // signatures 偏移
+    ] {
+        exec.extend_from_slice(&word);
+    }
+    exec.extend_from_slice(&num(68));
+    exec.extend_from_slice(&inner);
+    exec.extend_from_slice(&[0u8; 28]); // 68 → 96 字节对齐
+    exec.extend_from_slice(&num(0)); // signatures 长度 0
+    let r = review_of(nft, exec);
+    assert!(r.display.title.contains("Safe"), "{}", r.display.title);
+    assert!(
+        r.display
+            .rows
+            .iter()
+            .any(|x| x.value.contains(&checksum_address(&parse_address(USDT_ETH).unwrap()))),
+        "{:?}",
+        r.display.rows
+    );
+    assert!(
+        r.display
+            .warnings
+            .iter()
+            .any(|x| x.level == Level::Danger && x.text.contains("无限额")),
+        "{:?}",
+        r.display.warnings
+    );
+}

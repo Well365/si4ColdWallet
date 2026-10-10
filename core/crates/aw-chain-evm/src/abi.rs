@@ -91,6 +91,29 @@ fn uint_bits(w: &[u8; 32], bits: usize) -> Option<U256> {
         .then(|| U256::from_be_bytes(w))
 }
 
+/// Safe execTransaction（operation = 0）包着的内层调用：(to, value, data)。
+/// 不是该选择器、operation ≠ 0、或 ABI 偏移/长度越界时返回 None；DELEGATECALL 的拒签由 `decode` 负责。
+pub fn safe_exec_inner(data: &[u8]) -> Option<([u8; 20], U256, &[u8])> {
+    let (sel, args) = data.split_first_chunk::<4>()?;
+    if *sel != SAFE_EXEC {
+        return None;
+    }
+    let w = words(args);
+    let [to, value, offset, operation, ..] = w.as_slice() else {
+        return None;
+    };
+    if U256::from_be_bytes(operation).to_u64() != Some(0) {
+        return None;
+    }
+    let to = addr(to)?;
+    let offset = usize::try_from(U256::from_be_bytes(offset).to_u64()?).ok()?;
+    let len_end = offset.checked_add(32)?;
+    let len_word: &[u8; 32] = args.get(offset..len_end)?.try_into().ok()?;
+    let len = usize::try_from(U256::from_be_bytes(len_word).to_u64()?).ok()?;
+    let inner = args.get(len_end..len_end.checked_add(len)?)?;
+    Some((to, U256::from_be_bytes(value), inner))
+}
+
 /// 识别调用数据。Safe 的 DELEGATECALL 与 approveHash 直接返回错误（默认拒签）。
 pub fn decode(data: &[u8]) -> Result<Call, EvmError> {
     if data.is_empty() {

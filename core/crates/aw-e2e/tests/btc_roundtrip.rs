@@ -347,3 +347,80 @@ fn absurd_fee_rate_is_flagged() {
         r.warnings
     );
 }
+
+/// 审计 P0-3（docs/01 T5 表）：手续费超过付款金额 5% 必须是需要确认的强警告；全部转回自己时同样检查
+#[test]
+fn fee_above_five_percent_is_a_danger_warning() {
+    // 付 10,000 聪、60 sat/vB：手续费约 8,460 聪（约 85%）
+    let s = setup_with(10_000, 60);
+    let r = review(&s.secp, &s.signer.account, &s.psbt).unwrap();
+    assert!(r.fee * 20 > r.external_total, "夹具前提：手续费 > 5%");
+    assert!(r.warnings.contains(&Warning::HighFeeRatio), "{:?}", r.warnings);
+    assert!(r.to_display().has_danger(), "{:?}", r.to_display().warnings);
+
+    // 5 sat/vB：约 705 聪（约 7%），旧的 10% 阈值不会告警，5% 必须告警
+    let s = setup_with(10_000, 5);
+    let r = review(&s.secp, &s.signer.account, &s.psbt).unwrap();
+    assert!(r.fee * 20 > r.external_total && r.fee * 10 < r.external_total, "夹具前提：5% < 手续费 < 10%");
+    assert!(r.warnings.contains(&Warning::HighFeeRatio), "{:?}", r.warnings);
+
+    // 付 100,000 聪、2 sat/vB：远低于 5%，不得告警
+    let s = setup_with(100_000, 2);
+    let r = review(&s.secp, &s.signer.account, &s.psbt).unwrap();
+    assert!(r.fee * 20 < r.external_total, "夹具前提：手续费 < 5%");
+    assert!(!r.warnings.contains(&Warning::HighFeeRatio), "{:?}", r.warnings);
+}
+
+#[test]
+fn self_transfer_fee_ratio_is_still_checked() {
+    let secp = Secp256k1::new();
+    let signer = signer(&secp);
+    let watch = signer.account.clone();
+    let funding = funding_tx(&watch, &secp);
+    let utxos = vec![Utxo {
+        prev_tx: funding,
+        vout: 0,
+        change: false,
+        index: 0,
+    }];
+    // 付给自己的收款地址 #2：没有对外付款，但 60 sat/vB 的手续费仍然超过 5%
+    let own = Address::from_script(&watch.script_for(&secp, false, 2).unwrap(), Network::Testnet)
+        .unwrap();
+    let (mut psbt, _) = build_payment(&secp, &watch, &utxos, &own, 10_000, 60, 0).unwrap();
+    // 观察机把自己的收款地址当作普通收款人；这里按找零输出的写法补上派生信息，签名机才会把它识别为本钱包
+    let (fp, change_path) = psbt.outputs[1]
+        .bip32_derivation
+        .values()
+        .next()
+        .map(|(fp, path)| (*fp, path.clone()))
+        .unwrap();
+    let mut comps: Vec<bitcoin::bip32::ChildNumber> = change_path.into_iter().copied().collect();
+    let n = comps.len();
+    comps[n - 2] = bitcoin::bip32::ChildNumber::from_normal_idx(0).unwrap();
+    comps[n - 1] = bitcoin::bip32::ChildNumber::from_normal_idx(2).unwrap();
+    let own_pk = watch.derive_pubkey(&secp, false, 2).unwrap().0;
+    psbt.outputs[0]
+        .bip32_derivation
+        .insert(own_pk, (fp, bitcoin::bip32::DerivationPath::from(comps)));
+    let r = review(&secp, &signer.account, &psbt).unwrap();
+    assert_eq!(r.external_total, 0);
+    assert!(r.warnings.contains(&Warning::SelfTransferOnly));
+    assert!(r.warnings.contains(&Warning::HighFeeRatio), "{:?}", r.warnings);
+    assert!(r.to_display().has_danger());
+}
+
+#[test]
+fn absurd_absolute_fee_is_flagged() {
+    use aw_chain_btc::review::HIGH_FEE_ABSOLUTE_SAT;
+    // 付 1,000 聪、710 sat/vB：需要两个输入，手续费约 14.8 万聪，超过绝对值上限
+    let s = setup_with(1_000, 710);
+    let r = review(&s.secp, &s.signer.account, &s.psbt).unwrap();
+    assert!(r.fee > HIGH_FEE_ABSOLUTE_SAT, "夹具前提：手续费 {} 应超过 {}", r.fee, HIGH_FEE_ABSOLUTE_SAT);
+    assert!(r.warnings.contains(&Warning::HighFeeAbsolute), "{:?}", r.warnings);
+    assert!(r.to_display().has_danger());
+    // 现有的 600 sat/vB 用例手续费约 8.5 万聪，不应触发绝对值告警
+    let s = setup_with(10_000, 600);
+    let r = review(&s.secp, &s.signer.account, &s.psbt).unwrap();
+    assert!(r.fee < HIGH_FEE_ABSOLUTE_SAT, "夹具前提：{}", r.fee);
+    assert!(!r.warnings.contains(&Warning::HighFeeAbsolute));
+}

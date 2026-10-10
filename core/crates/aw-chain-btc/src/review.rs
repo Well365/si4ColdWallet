@@ -39,12 +39,19 @@ pub struct InputInfo {
     pub script: bitcoin::ScriptBuf,
 }
 
+/// 手续费占付款金额的比例上限：超过 1/20（5%）即高风险（docs/01 T5）
+pub const HIGH_FEE_RATIO_DIVISOR: u64 = 20;
+/// 手续费绝对值上限：超过即高风险，与比例无关（docs/01 T5 "绝对值异常"）
+pub const HIGH_FEE_ABSOLUTE_SAT: u64 = 100_000;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Warning {
     /// 手续费率超过 500 sat/vB
     HighFeeRate,
-    /// 手续费超过对外付款总额的 10%
+    /// 手续费超过付款金额的 5%（没有对外付款时按全部输出计）
     HighFeeRatio,
+    /// 手续费绝对值超过 HIGH_FEE_ABSOLUTE_SAT
+    HighFeeAbsolute,
     /// 对外付款金额低于粉尘阈值
     DustOutput,
     /// 没有对外付款（全部转给自己）
@@ -222,8 +229,17 @@ pub fn review<C: Verification>(
     if fee > vsize.saturating_mul(500) {
         warnings.push(Warning::HighFeeRate);
     }
-    if external_total > 0 && fee.saturating_mul(10) > external_total {
+    // 比例按对外付款金额算；全部转回自己（整理 UTXO 等）时按全部输出算，不能因此跳过检查
+    let ratio_base = if external_total > 0 {
+        external_total
+    } else {
+        output_total
+    };
+    if ratio_base > 0 && fee.saturating_mul(HIGH_FEE_RATIO_DIVISOR) > ratio_base {
         warnings.push(Warning::HighFeeRatio);
+    }
+    if fee > HIGH_FEE_ABSOLUTE_SAT {
+        warnings.push(Warning::HighFeeAbsolute);
     }
     if outputs
         .iter()
@@ -314,7 +330,11 @@ impl Review {
         for w in &self.warnings {
             match w {
                 Warning::HighFeeRate => d.warn(Level::Danger, "手续费率异常高（超过 500 sat/vB）"),
-                Warning::HighFeeRatio => d.warn(Level::Caution, "手续费超过对外付款金额的 10%"),
+                Warning::HighFeeRatio => d.warn(Level::Danger, "手续费超过付款金额的 5%"),
+                Warning::HighFeeAbsolute => d.warn(
+                    Level::Danger,
+                    format!("手续费绝对值异常高（超过 {}）", btc(HIGH_FEE_ABSOLUTE_SAT)),
+                ),
                 Warning::DustOutput => {
                     d.warn(Level::Caution, "付款金额低于粉尘阈值，交易可能无法广播")
                 }
@@ -354,6 +374,7 @@ impl Review {
                 Json::str(match w {
                     Warning::HighFeeRate => "high_fee_rate",
                     Warning::HighFeeRatio => "high_fee_ratio",
+                    Warning::HighFeeAbsolute => "high_fee_absolute",
                     Warning::DustOutput => "dust_output",
                     Warning::SelfTransferOnly => "self_transfer_only",
                     Warning::Locktime => "locktime",
