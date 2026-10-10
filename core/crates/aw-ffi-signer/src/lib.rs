@@ -32,7 +32,7 @@ use bitcoin::Network;
 
 aw_ffi_common::define_common_ffi!();
 
-pub const AW_ABI_VERSION: u32 = 4;
+pub const AW_ABI_VERSION: u32 = 5;
 const MAX_PASSPHRASE: usize = 1024;
 const MAX_DICE: usize = 1024;
 const MAX_PSBT: usize = 512 * 1024;

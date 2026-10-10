@@ -5,7 +5,7 @@ import Security
 /// Rust 核心的 Swift 薄封装。所有对 C 接口的调用都集中在这里。
 /// 秘密只存在于 Rust 会话中；Swift 只传单词序号，passphrase 由 SecureField 输入后立即交给 Rust。
 enum AWCore {
-    static let expectedABI: UInt32 = 4
+    static let expectedABI: UInt32 = 5
 
     enum Failure: Error, Equatable {
         case abiMismatch(found: UInt32)

@@ -53,7 +53,7 @@ fn pump(enc: *mut AwUrEncoder) -> *mut AwUrDecoder {
 #[test]
 fn selftest_and_abi() {
     assert_eq!(aw_selftest(), AW_OK);
-    assert_eq!(aw_abi_version(), 4);
+    assert_eq!(aw_abi_version(), 5);
 }
 
 #[test]
