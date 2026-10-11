@@ -6,9 +6,22 @@ struct SetupView: View {
         case generate
         case backup
         case restore
+        case setPin
     }
 
+    /// 刚解锁、等待设置 PIN 的钱包（决策 D39）
+    struct Pending {
+        let session: SignerSession
+        let words: [UInt16]
+        let passphrase: String?
+        let testnet: Bool
+    }
+
+    let notice: String?
     let onUnlocked: (SignerSession) -> Void
+    @Environment(\.scenePhase) private var phase
+    @State private var pending: Pending?
+    @State private var pinError: String?
     @State private var session = SignerSession()
     @State private var path: [Route] = []
     @State private var hasWords = false
@@ -32,9 +45,28 @@ struct SetupView: View {
                     case .generate: GenerateView(session: session) { path.append(.backup) }
                     case .backup: BackupView(session: session) { wordsReady() }
                     case .restore: RestoreView(session: session) { wordsReady() }
+                    case .setPin:
+                        SetPinView(hasPassphrase: pending?.passphrase != nil, error: pinError) { pin, storePassphrase in
+                            savePin(pin, storePassphrase: storePassphrase)
+                        } onSkip: {
+                            if let p = pending { onUnlocked(p.session) }
+                        }
                     }
                 }
         }
+        .onChange(of: phase) { _, p in
+            // 已解锁、还在设置 PIN 时切到后台：丢弃这个会话（决策 D39：切到后台就锁）
+            if p == .background, pending != nil { discardPending() }
+        }
+    }
+
+    private func discardPending() {
+        pending = nil
+        pinError = nil
+        session = SignerSession()
+        hasWords = false
+        path.removeAll()
+        error = "切到后台时已锁定，请重新输入助记词。"
     }
 
     private func wordsReady() {
@@ -42,11 +74,29 @@ struct SetupView: View {
         path.removeAll()
     }
 
+    /// 保存到本机（Secure Enclave + PIN），然后进入钱包
+    private func savePin(_ pin: String, storePassphrase: Bool) {
+        guard let p = pending, let fp = UInt32(p.session.fingerprint, radix: 16) else { return }
+        do {
+            try WalletVault.store(
+                WalletVault.Contents(words: p.words, usesPassphrase: p.passphrase != nil,
+                                     passphrase: storePassphrase ? p.passphrase : nil,
+                                     testnet: p.testnet, fingerprint: fp),
+                pin: pin)
+            onUnlocked(p.session)
+        } catch {
+            pinError = "无法保存到本机：手机需要先设置锁屏密码（并且有 Secure Enclave）。可以选择不保存，直接进入钱包。"
+        }
+    }
+
     private var form: some View {
         Form {
             Section {
                 Label("自检通过", systemImage: "checkmark.seal.fill").foregroundStyle(.green)
                     .accessibilityIdentifier("selftest-status")
+                if let notice {
+                    Label(notice, systemImage: "exclamationmark.octagon.fill").foregroundStyle(.red)
+                }
             }
             Section("1. 助记词") {
                 if hasWords {
@@ -123,11 +173,15 @@ struct SetupView: View {
             } else {
                 try session.expectFingerprint(nil)
             }
+            let words = session.wordIndices.map { UInt16($0) }
+            let usedPassphrase = mode == .passphrase ? passphrase : nil
             try session.setPassphrase(mode == .passphrase ? passphrase : "")
             passphrase = ""
             passphraseAgain = ""
             try session.unlock(testnet: testnet)
-            onUnlocked(session)
+            // 解锁成功后设置 PIN，保存到本机（决策 D39）；也可以跳过、不保存
+            pending = Pending(session: session, words: words, passphrase: usedPassphrase, testnet: testnet)
+            path.append(.setPin)
         } catch let f as AWCore.Failure {
             error = f.message
         } catch {

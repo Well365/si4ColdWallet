@@ -47,7 +47,7 @@ Beyond these, **nothing is trusted**: package registries, third-party authors' a
 | T11 | Pre-signed transactions exploited later | Drift 2026-04 (durable nonce) | SOL durable nonce: strong warning; EVM: always display nonce and chain ID |
 | T12 | Counterfeit App / fake installation packages | Fake Ledger Live 2026-04, SeaFlower | Only self-compiled installation is supported; build hashes are published for comparison |
 | T13 | The Signer secretly going online | General-purpose phones have wireless modules | The Signer binary contains no network symbols (CI check); device procedure: no Apple ID sign-in, SIM card removed, wireless off, Airplane Mode |
-| T14 | Physical extraction after device theft | TROPIC01, Tangem (2026) | Stateless by default; storage mode relies on SE + device passcode; passphrase never saved; multisig for large amounts |
+| T14 | Physical extraction after device theft | TROPIC01, Tangem (2026) | Stateless by default; optional on-device storage (D39): encrypted with a Secure Enclave key + 6-digit unlock PIN, wiped after one wrong PIN, relies on the device passcode; passphrase not saved unless the user opts in; multisig for large amounts |
 
 ## Per-chain "dangerous operations" (refuse to sign by default, or strong warning)
 

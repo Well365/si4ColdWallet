@@ -45,7 +45,7 @@
 | T11 | 预签交易被延后利用 | Drift 2026-04（durable nonce） | SOL durable nonce 强警告；EVM 永远显示 nonce 与链 ID |
 | T12 | 假冒 App / 假安装包 | 假 Ledger Live 2026-04、SeaFlower | 只支持自己编译安装；发布构建哈希供比对 |
 | T13 | 签名机偷偷联网 | 通用手机有无线模块 | 签名机二进制不含网络符号（CI 检查）；设备流程：不登录 Apple ID、拔卡、关无线、飞行模式 |
-| T14 | 设备被盗后物理提取 | TROPIC01、Tangem（2026） | 默认无状态；存储模式依赖 SE + 设备密码；passphrase 不保存；大额多签 |
+| T14 | 设备被盗后物理提取 | TROPIC01、Tangem（2026） | 默认无状态；可选本机保存（D39）：Secure Enclave 密钥 + 6 位解锁密码加密，输错一次即清除，依赖设备锁屏密码；passphrase 默认不保存（用户可选保存）；大额多签 |
 
 ## 各链"危险操作"（默认拒签或强警告）
 

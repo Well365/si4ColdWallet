@@ -19,7 +19,7 @@ Status: P0 draft · 2026-10-10 · to be revised after P1 real-device testing
 2. **Activation** (this step requires a network connection; this cannot be avoided):
    - Do not sign in with an Apple ID (choose "Forgot password or don't have an Apple ID?" → "Set Up Later in Settings")
    - Turn off: Location Services, Siri, Screen Time, Analytics & Improvements, iCloud
-   - Set a device passcode of 6 or more digits
+   - Set a device passcode of 6 or more digits (the Signer's on-device wallet storage requires it: without a passcode it cannot save, and removing the passcode makes iOS delete the stored wallet; see D39)
 3. **Register the device**: on the Mac, connect the iPhone via Xcode → Window → Devices and Simulators, and add the device to the developer account.
 4. **Developer Mode**: on the iPhone, Settings → Privacy & Security → Developer Mode → turn on → restart → enter the passcode to confirm.
 5. **Install and trust** (the iPhone is still online at this point):

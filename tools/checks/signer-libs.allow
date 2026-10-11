@@ -32,3 +32,5 @@
 /usr/lib/swift/libswiftCoreLocation.dylib
 # 2026-10-11：CALayer 所在框架（助记词防截屏显示，审计 P1-8）
 /System/Library/Frameworks/QuartzCore.framework/QuartzCore
+# 2026-10-11（D39）：WalletVault 使用 CryptoKit（Secure Enclave ECDH、HKDF、AES-GCM），系统框架。
+/System/Library/Frameworks/CryptoKit.framework/CryptoKit

@@ -299,3 +299,21 @@ Each decision: Context → Decision → Cost. Overturning any decision requires 
 - **Exception to the supply-chain rule**: C2 used to allow binaries only as registered test data under third_party. It now also allows `ios/<App>/<App>/Assets.xcassets/<name>.appiconset/<name>.png`, provided the file starts with the PNG signature and its SHA-256 is registered in `third_party/BINARY_ALLOWLIST`; changing an icon means regenerating it and updating the registered hash.
 - **Cost**: two binary files in the repository; they are images only, take no part in the Rust build and do not affect the Signer's artifact checks (C4/C5 pass).
 
+## D39 · The Signer stores the wallet on the device: a 6-digit unlock PIN, wiped after one wrong entry (2026-10-11, user request)
+
+- **Background**: the Signer used to be fully stateless (D4): every launch meant typing all 12/24 mnemonic words again, which was too hard to use. The user asked for a PIN at every restart, with the stored wallet wiped after a single wrong PIN.
+- **User's choices**: a 6-digit numeric PIN (entered on the app's own keypad, never the system keyboard); required at every launch and every return from the background; whether the passphrase is stored too is the user's choice when setting the PIN (if not, it is asked for after the PIN).
+- **Encryption** (`ios/Signer/Signer/WalletVault.swift`):
+  - A P-256 key is created in the Secure Enclave. It cannot be exported and belongs to this phone only; the Keychain holds only its encrypted handle.
+  - Each save creates an ephemeral P-256 key and does ECDH with the Secure Enclave key. HKDF-SHA256 mixes in a 16-byte random salt and the PIN to give a 256-bit key. AES-256-GCM encrypts the contents, with a format tag as associated data.
+  - What is encrypted: the word indices, the network, the wallet fingerprint and, if the user chose it, the passphrase. The mnemonic text never appears in Swift.
+  - Both Keychain items use `WhenPasscodeSetThisDeviceOnly`. They are excluded from iCloud backup and sync, and iOS deletes them if the device passcode is removed.
+- **One wrong PIN wipes**: any decryption failure (GCM check fails) counts as a wrong PIN, and both Keychain items are deleted at once. Without the handle, the Secure Enclave key can never be used again. The screen says the wallet was wiped and must be restored from the mnemonic. A wrong passphrase does not wipe: the stored fingerprint is checked, and on a mismatch the user retypes it.
+- **Locking**: as soon as the app goes to the background, the session is dropped (Rust zeroizes the keys), and the PIN is required again. Going to the background on the PIN-setup page also drops the unlocked session.
+- **Storing is optional**: the PIN-setup page offers "don't save, enter the mnemonic next time", which keeps the old stateless use. The wallet page can delete the stored wallet, and the unlock page has "forgot PIN" (wipe, then restore from the mnemonic).
+- **Signer artifact checks**: the new CryptoKit symbols (Secure Enclave, HKDF, AES-GCM), the Keychain `SecItem*` calls and the SwiftUI symbols used by the new screens were reviewed one by one and added to `tools/checks/signer-imports.allow`. `CryptoKit.framework` was added to the library allowlist. None of them touch the network, files, the clipboard or logging.
+- **Costs and residual risks**:
+  - Six digits allow only one million PINs. The one-wrong-wipe rule is enforced only inside the app. An attacker who can run arbitrary code on this phone (jailbreak, OS exploit) can first copy the Keychain ciphertext and handle, then try every PIN through the Secure Enclave, since ECDH has no attempt limit. The real barrier is therefore the device passcode and OS integrity, as D4 already said for storage mode.
+  - Storing the passphrase removes its role as a second lock. Anyone who gets the phone and breaks the layer above gets the passphrase wallet directly. For large amounts, do not store the passphrase.
+  - The PIN and passphrase are ordinary Swift strings, so they cannot be guaranteed to be zeroed in memory (the same as the existing passphrase field).
+  - The Simulator has no Secure Enclave, so only the screen flow can be checked there (saving fails with a message). Saving, unlocking and wipe-on-wrong-PIN must be verified on a real device.

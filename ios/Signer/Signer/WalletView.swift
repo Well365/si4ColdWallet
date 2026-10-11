@@ -4,6 +4,10 @@ import SwiftUI
 struct WalletView: View {
     let session: SignerSession
     let onLock: () -> Void
+    /// 从本机删除保存的钱包（决策 D39）
+    let onForget: () -> Void
+    @State private var saved = WalletVault.exists
+    @State private var confirmForget = false
 
     var body: some View {
         List {
@@ -32,7 +36,19 @@ struct WalletView: View {
             }
             Section {
                 Button("锁定并清除内存中的密钥", role: .destructive) { onLock() }
+                if saved {
+                    Button("从本机删除保存的钱包", role: .destructive) { confirmForget = true }
+                }
+            } footer: {
+                Text(saved
+                     ? "这个钱包已用 6 位解锁密码保存在本机：锁定后输入密码即可回来，输错一次就会被清除。切到后台也会自动锁定。"
+                     : "这个钱包没有保存在本机：锁定后要重新输入助记词。")
             }
+        }
+        .confirmationDialog("从本机删除保存的钱包？", isPresented: $confirmForget, titleVisibility: .visible) {
+            Button("删除", role: .destructive) { onForget() }
+        } message: {
+            Text("删除后只能用助记词重新恢复。")
         }
         .navigationTitle("钱包")
         .navigationBarBackButtonHidden()

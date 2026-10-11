@@ -1,0 +1,22 @@
+@startgantt d39-progress
+' D39 签名机本机保存钱包 + 6 位解锁密码的任务进度（2026-10-11）
+title D39 签名机本机保存 + 6 位解锁密码（2026-10-11）
+skinparam defaultFontName "PingFang SC"
+project starts 2026-10-11
+[T1 加密保存（Secure Enclave + HKDF + AES-GCM）] starts 2026-10-11 and lasts 1 day
+[T1 加密保存（Secure Enclave + HKDF + AES-GCM）] is 100% completed
+[T1 加密保存（Secure Enclave + HKDF + AES-GCM）] is colored in LightGreen
+[T2 数字键盘、设置 / 解锁密码页] starts 2026-10-11 and lasts 1 day
+[T2 数字键盘、设置 / 解锁密码页] is 100% completed
+[T2 数字键盘、设置 / 解锁密码页] is colored in LightGreen
+[T3 状态机：启动输密码、切后台锁定、输错清除] starts 2026-10-11 and lasts 1 day
+[T3 状态机：启动输密码、切后台锁定、输错清除] is 100% completed
+[T3 状态机：启动输密码、切后台锁定、输错清除] is colored in LightGreen
+[T4 产物检查白名单 + 模拟器界面流程] starts 2026-10-11 and lasts 1 day
+[T4 产物检查白名单 + 模拟器界面流程] is 100% completed
+[T4 产物检查白名单 + 模拟器界面流程] is colored in LightGreen
+[T5 独立安全复审 + 文档] starts 2026-10-11 and lasts 1 day
+[T5 独立安全复审 + 文档] is 50% completed
+[T6 真机验证（保存、解锁、输错清除）] starts 2026-10-12 and lasts 1 day
+[T6 真机验证（保存、解锁、输错清除）] is 0% completed
+@endgantt

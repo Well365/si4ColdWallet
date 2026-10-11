@@ -31,7 +31,7 @@ v2 candidates (not in v1 scope): LTC, BCH (reuse the UTXO module, low cost); TON
 ## Feature list (v1.0)
 
 - Seed: generation (system random numbers + optional dice entropy), import (manual entry / SeedQR), BIP39 passphrase (never saved)
-- Seed storage: **stateless (default)**; optional "storage mode" (encrypted with Secure Enclave P-256, then stored in the Keychain, this device only)
+- Seed storage: **stateless (default)**; optional "storage mode" (encrypted with Secure Enclave P-256, then stored in the Keychain, this device only). Implemented in D39: a 6-digit unlock PIN, required at launch and on every return to the foreground, wiped after one wrong PIN
 - Public key export: per-chain xpub / public key / address, passed to the Watcher via QR code
 - Signing: transfers and common contract interactions on the 6 chain categories above; by default, refuse to sign each chain's "dangerous operations" (see the threat model)
 - Addresses: full grouped display, allowlist, look-alike address warning
