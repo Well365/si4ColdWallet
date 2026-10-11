@@ -488,6 +488,7 @@ pub(crate) fn sol_error_code(e: SolError) -> i32 {
         SolError::Derivation => 10,
         SolError::BadSignature => 11,
         SolError::RequestMismatch => 12,
+        SolError::AccountLock => 13,
     };
     aw_ffi_common::AW_ERR_SOL_REJECT_BASE - n
 }

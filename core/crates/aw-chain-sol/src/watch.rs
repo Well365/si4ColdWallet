@@ -131,7 +131,7 @@ pub fn priority_tiers(samples: &[u64]) -> [u64; 3] {
             .copied()
             .unwrap_or(0)
     };
-    let standard = pct(50).max(MIN_STANDARD_PRICE).min(MAX_PRICE);
+    let standard = pct(50).clamp(MIN_STANDARD_PRICE, MAX_PRICE);
     let slow = pct(25).min(standard);
     let fast = pct(75).max(standard.saturating_mul(2)).min(MAX_PRICE);
     [slow, standard, fast]

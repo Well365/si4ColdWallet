@@ -15,9 +15,8 @@ TOKEN_2022 = bytes.fromhex("06ddf6e1ee758fde18425dbce46ccddab61afc4d83b90d27febd
 
 
 def on_curve(b: bytes) -> bool:
-    """RFC 8032 点解压：能解出 x 就在曲线上（与 Solana 一样不拒绝 y ≥ p 的非规范编码）。"""
+    """与 Solana（curve25519-dalek 的 decompress）相同的语义：忽略符号位，y 按模 p 取值，能解出 x 就在曲线上。"""
     y = int.from_bytes(b, "little") & ((1 << 255) - 1)
-    sign = b[31] >> 7
     y %= P
     u = (y * y - 1) % P
     v = (D * y * y + 1) % P
@@ -28,8 +27,6 @@ def on_curve(b: bytes) -> bool:
     elif vx2 == (-u) % P:
         x = (x * pow(2, (P - 1) // 4, P)) % P
     else:
-        return False
-    if x == 0 and sign == 1:
         return False
     return True
 
@@ -54,4 +51,24 @@ def main() -> None:
         print(owner.hex(), mint.hex(), prog.hex(), ata.hex(), bump)
 
 
-main()
+def curve_edges() -> None:
+    """is_on_curve 的边界向量：y ≥ p 的 19 个非规范值与 y = 0…3、p−1、p−2 各配两种符号位，外加 200 个随机值。
+    写到 core/crates/aw-chain-sol/tests/vectors/curve.txt：每行 <32 字节 hex> <0|1>"""
+    rng = random.Random(7)
+    vals = [P + k for k in range(19)] + [0, 1, 2, 3, P - 1, P - 2]
+    out = []
+    for y in vals:
+        for sign in (0, 1):
+            b = (y | (sign << 255)).to_bytes(32, "little")
+            out.append(f"{b.hex()} {int(on_curve(b))}")
+    for _ in range(200):
+        b = bytes(rng.randrange(256) for _ in range(32))
+        out.append(f"{b.hex()} {int(on_curve(b))}")
+    with open("core/crates/aw-chain-sol/tests/vectors/curve.txt", "w", encoding="utf-8") as f:
+        f.write("\n".join(out) + "\n")
+
+
+if __import__("sys").argv[1:] == ["--curve"]:
+    curve_edges()
+else:
+    main()

@@ -31,6 +31,28 @@ pub const SYSVAR_RECENT_BLOCKHASHES: [u8; 32] = [
     0xcf, 0x03, 0x5c, 0x31, 0x45, 0xb2, 0x1a, 0xb3, 0x44, 0xd8, 0x06, 0x2e, 0xa9, 0x40, 0x00, 0x00,
 ];
 
+/// 签名校验预编译程序：每条指令里的签名数各收 5000 lamports 手续费
+pub const SIG_PRECOMPILES: [[u8; 32]; 3] = [
+    // Ed25519SigVerify111111111111111111111111111
+    [
+        0x03, 0x7d, 0x46, 0xd6, 0x7c, 0x93, 0xfb, 0xbe, 0x12, 0xf9, 0x42, 0x8f, 0x83, 0x8d, 0x40,
+        0xff, 0x05, 0x70, 0x74, 0x49, 0x27, 0xf4, 0x8a, 0x64, 0xfc, 0xca, 0x70, 0x44, 0x80, 0x00,
+        0x00, 0x00,
+    ],
+    // KeccakSecp256k11111111111111111111111111111
+    [
+        0x04, 0xc6, 0xfc, 0x20, 0xf0, 0x50, 0xcc, 0xf0, 0x55, 0x84, 0xd7, 0x21, 0x1c, 0x9f, 0x8c,
+        0xf5, 0x9e, 0xc1, 0x47, 0x85, 0xbb, 0x16, 0x6a, 0x1e, 0x28, 0x30, 0xe8, 0x12, 0x20, 0x00,
+        0x00, 0x00,
+    ],
+    // Secp256r1SigVerify1111111111111111111111111
+    [
+        0x06, 0x92, 0x0d, 0xec, 0x2f, 0xea, 0x71, 0xb5, 0xb7, 0x23, 0x81, 0x4d, 0x74, 0x2d, 0xa9,
+        0x03, 0x1c, 0x83, 0xe7, 0x5f, 0xdb, 0x79, 0x5d, 0x56, 0x8e, 0x75, 0x47, 0x80, 0x20, 0x00,
+        0x00, 0x00,
+    ],
+];
+
 /// 主网上的已知代币（mint 地址、符号、小数位）
 pub struct KnownToken {
     pub mint: [u8; 32],
@@ -63,10 +85,26 @@ pub fn known_token(mint: &[u8; 32]) -> Option<&'static KnownToken> {
     KNOWN_TOKENS.iter().find(|t| t.mint == *mint)
 }
 
-/// 32 字节是否是 Ed25519 曲线上的点。借用 ed25519-compact 的公开校验：签名标量为 0（规范）时，
-/// 只有公钥解不出曲线点才会返回 `InvalidPublicKey`（恒等元与全零也是曲线上的点，返回 `WeakPublicKey`）。
+/// 32 字节是否是 Ed25519 曲线上的点，语义与 Solana（curve25519-dalek 的 `decompress`）一致：
+/// 忽略符号位、y 按模 p 取值。先把输入规范化（清符号位、y ≥ p 时减 p），再借用 ed25519-compact 的公开校验：
+/// 签名标量为 0（规范）时，只有公钥解不出曲线点才会返回 `InvalidPublicKey`
+/// （恒等元与全零也是曲线上的点，返回 `WeakPublicKey`）。规范化后，ed25519-compact 拒绝"非规范 y"
+/// 与"x = 0 且符号位为 1"这两条额外规则不再起作用。
 pub fn is_on_curve(bytes: &[u8; 32]) -> bool {
-    let pk = ed25519_compact::PublicKey::new(*bytes);
+    let mut y = *bytes;
+    if let Some(last) = y.last_mut() {
+        *last &= 0x7f;
+    }
+    // y ≥ p = 2^255 − 19：只可能是 0x7fff…ff 结尾、首字节 ≥ 0xed 的 19 个值，减去 p 后只剩首字节
+    let high_ones =
+        y.get(1..31).is_some_and(|s| s.iter().all(|&b| b == 0xff)) && y.get(31) == Some(&0x7f);
+    if let Some(first) = y.first().copied().filter(|&b| high_ones && b >= 0xed) {
+        y = [0u8; 32];
+        if let Some(f) = y.first_mut() {
+            *f = first - 0xed;
+        }
+    }
+    let pk = ed25519_compact::PublicKey::new(y);
     let zero = ed25519_compact::Signature::new([0u8; 64]);
     !matches!(
         pk.verify_incremental(&zero),

@@ -28,3 +28,32 @@ fn ata_matches_independent_python_derivation() {
     }
     assert_eq!(n, 60);
 }
+
+/// 真实主网的关联代币账户（21 个，来自真实交易的 postTokenBalances：钱包、mint、代币程序 → 账户地址）
+#[test]
+fn real_mainnet_atas() {
+    let mut n = 0;
+    for line in include_str!("vectors/real_atas.txt").lines() {
+        let f: Vec<&str> = line.split(' ').collect();
+        assert_eq!(
+            associated_token_account(&h32(f[0]), &h32(f[1]), &h32(f[2])),
+            Some(h32(f[3])),
+            "{line}"
+        );
+        n += 1;
+    }
+    assert_eq!(n, 21);
+}
+
+/// "是否在曲线上"与 Solana（curve25519-dalek decompress）语义一致：含 y ≥ p 的非规范值与两种符号位
+#[test]
+fn on_curve_matches_dalek_semantics() {
+    for line in include_str!("vectors/curve.txt").lines() {
+        let (hex, want) = line.split_once(' ').unwrap();
+        assert_eq!(
+            aw_chain_sol::programs::is_on_curve(&h32(hex)),
+            want == "1",
+            "{hex}"
+        );
+    }
+}

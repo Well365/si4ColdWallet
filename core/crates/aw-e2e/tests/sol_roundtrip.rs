@@ -171,3 +171,56 @@ fn signer_and_watcher_refuse_inconsistent_requests() {
     sig.signature[10] ^= 1;
     assert_eq!(finalize(&req, &sig), Err(SolError::BadSignature));
 }
+
+/// 测试缺口：链下消息签名拒绝；观察机核对"只有一个签名者、签名者就是请求地址"
+#[test]
+fn message_requests_and_multi_signer_finalize_are_refused() {
+    use aw_chain_sol::programs::{compile_legacy, system_transfer};
+    use aw_chain_sol::request::SignType;
+    let s = signer();
+    let own = s.public_key(Scheme::Phantom, 0).unwrap();
+    let msg = build_transfer(&Transfer {
+        from: own,
+        to: [0x22; 32],
+        amount: 1,
+        token: None,
+        blockhash: [0x33; 32],
+        unit_limit: None,
+        unit_price: None,
+    })
+    .unwrap();
+    let mut req = build_request(msg, Scheme::Phantom, 0, own, None, [9; 16]);
+    req.sign_type = Some(SignType::Message);
+    assert_eq!(s.sign(&req).map(|_| ()), Err(SolError::Unsupported));
+    // 两个签名者的消息：签名机可以签（显示"还需要另外 1 个签名"），观察机不能拼成完整交易
+    let other = s.public_key(Scheme::Phantom, 1).unwrap();
+    let two = compile_legacy(
+        &own,
+        &[system_transfer(&other, &[0x22; 32], 1)],
+        &[0x33; 32],
+    )
+    .unwrap();
+    let req = build_request(two, Scheme::Phantom, 0, own, None, [10; 16]);
+    let (r, sig) = s.sign(&req).unwrap();
+    assert!(r
+        .display
+        .warnings
+        .iter()
+        .any(|w| w.text.contains("另外 1 个签名")));
+    assert_eq!(finalize(&req, &sig), Err(SolError::RequestMismatch));
+    // 请求地址与消息签名者不符
+    let one = build_transfer(&Transfer {
+        from: own,
+        to: [0x22; 32],
+        amount: 1,
+        token: None,
+        blockhash: [0x33; 32],
+        unit_limit: None,
+        unit_price: None,
+    })
+    .unwrap();
+    let mut req = build_request(one, Scheme::Phantom, 0, own, None, [11; 16]);
+    let (_, sig) = s.sign(&req).unwrap();
+    req.address = Some(other);
+    assert_eq!(finalize(&req, &sig), Err(SolError::RequestMismatch));
+}

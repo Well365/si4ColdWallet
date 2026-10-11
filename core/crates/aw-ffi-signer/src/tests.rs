@@ -788,6 +788,7 @@ fn sol_error_codes_are_pinned() {
         (E::Derivation, 10),
         (E::BadSignature, 11),
         (E::RequestMismatch, 12),
+        (E::AccountLock, 13),
     ] {
         assert_eq!(
             sol_error_code(e),

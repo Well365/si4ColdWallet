@@ -38,14 +38,14 @@ A subtler problem: tokens are not sent to a "wallet address" but to the recipien
 - All Rust tests pass (measured locally). Solana-specific: the parser matches the independent Python implementation on 600 vectors, ATA derivation on 60, signatures match the RFC 8032 official vectors, the end-to-end flow (Watcher → QR → Signer → QR → Watcher) passes for all three path schemes, and arbitrary truncation / byte mutation never panics.
 - C-interface tests: on the Signer side review, signing, refusal without confirmation for high-risk requests, refusal for a wrong account type; on the Watcher side building, verifying and the transaction id.
 - Simulator: the Watcher's Solana tab imports an address, verifies the devnet node by genesis hash, fetches the three priority tiers, and shows the correct message when the balance is short.
-- Independent review: see Section 5.
+- Independent review: verdict BLOCK (2 high, 2 medium, 6 low, 17 places where removing a check still passed the tests); everything was fixed with tests, and re-running 6 of those "remove the check" experiments in a copy now fails the tests. Real mainnet data was added: 8 real transactions and 21 real token accounts.
 - **Not verified**: an actual send and broadcast between the real devices.
 
 ## 5. Knowledge gaps
 
 | Gap | Why unclear | How to close | When |
 |---|---|---|---|
-| Is the "on curve" test identical to the Solana node's? | it reuses an ed25519 library's public-key validation, not the library the node uses | the independent review checks this specifically; write our own point decompression if needed | after the review |
+| Is the "on curve" test identical to the Solana node's? | 26 extreme values used to differ (not exploitable) | now has the node's semantics, with edge vectors | closed |
 | Is the fee formula identical to the node's? | Solana's fee rules keep evolving (e.g. charging by loaded account data size) | send a few transactions on device and compare with the fee shown by the explorer | once test coins are available |
 
 ## 6. Compared with the plan

@@ -43,6 +43,8 @@ pub enum SolError {
     BadSignature,
     /// 签名机返回的签名与本次请求不对应
     RequestMismatch,
+    /// System Allocate / AllocateWithSeed 作用于本账户：账户带上数据后 SOL 再也转不出去
+    AccountLock,
 }
 
 /// 派生方案（D34）。`ALL` 的顺序就是 FFI `aw_session_address` 的 scheme 编号

@@ -58,3 +58,17 @@ fn rust_parser_matches_independent_python_parser() {
     }
     assert_eq!(n, 600);
 }
+
+/// 真实主网交易（2026-10-11 从 USDC 相关交易取的 8 笔，legacy 与 v0 都有）：解析结果必须与节点 JSON 一致
+#[test]
+fn real_mainnet_transactions_parse_like_the_node() {
+    let mut n = 0;
+    for line in include_str!("vectors/real_messages.txt").lines() {
+        let (hex, want) = line.split_once(' ').unwrap();
+        let bytes = aw_common::hex::decode(hex).unwrap();
+        let m = Message::parse(&bytes).unwrap();
+        assert_eq!(summary(&m), want, "{hex}");
+        n += 1;
+    }
+    assert_eq!(n, 8);
+}

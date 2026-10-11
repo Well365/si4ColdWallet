@@ -92,6 +92,7 @@ enum AWCore {
             8: "签名路径不是支持的 Solana 账户类型（Phantom / Ledger Live / Ledger 主账户）",
             9: "请求里的地址与签名机派生出的不一致：观察机上选的账户类型或序号不对",
             10: "密钥派生或签名自检失败", 11: "签名无效", 12: "签名与请求不对应",
+            13: "交易会给本账户分配数据空间（System Allocate）：之后账户里的 SOL 再也转不出去，拒绝签名",
         ]
         if code <= AW_ERR_SOL_REJECT_BASE, let r = solReasons[AW_ERR_SOL_REJECT_BASE - code] { return r }
         if code <= AW_ERR_EVM_REJECT_BASE, let r = evmReasons[AW_ERR_EVM_REJECT_BASE - code] { return r }

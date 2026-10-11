@@ -242,19 +242,9 @@ impl Message {
         } else if i < keys {
             i < keys - usize::from(self.readonly_unsigned)
         } else {
-            // 查找表：可写段在前
-            let mut j = i - keys;
-            for l in &self.lookups {
-                if j < l.writable.len() {
-                    return true;
-                }
-                j -= l.writable.len();
-                if j < l.readonly.len() {
-                    return false;
-                }
-                j -= l.readonly.len();
-            }
-            false
+            // 查找表：所有表的可写地址排在前，所有表的只读地址排在后（与 Solana 的加载顺序相同）
+            let writable: usize = self.lookups.iter().map(|l| l.writable.len()).sum();
+            i - keys < writable
         }
     }
 
@@ -398,5 +388,48 @@ mod tests {
                 let _ = Message::parse(&t);
             }
         }
+    }
+
+    /// 测试缺口：账户序号恰好越界一位、总账户数 256 上限、查找表的可写 / 只读顺序
+    #[test]
+    fn index_boundary_account_cap_and_lookup_order() {
+        let good = transfer_message();
+        let ix = 4 + 32 * 3 + 32 + 1;
+        let mut t = good.clone();
+        t[ix + 3] = 2; // 最后一个合法序号
+        assert!(Message::parse(&t).is_ok());
+        t[ix + 3] = 3; // 恰好越界
+        assert_eq!(Message::parse(&t), Err(SolError::Parse));
+        // v0：两张表各带 1 可写 1 只读 → 序号 3、4 可写，5、6 只读
+        let mut m = vec![0x80];
+        m.extend_from_slice(&good);
+        encode_shortvec(&mut m, 2);
+        for t in [0x44u8, 0x45] {
+            m.extend_from_slice(&k(t));
+            encode_shortvec(&mut m, 1);
+            m.push(0);
+            encode_shortvec(&mut m, 1);
+            m.push(1);
+        }
+        let p = Message::parse(&m).unwrap();
+        assert!(p.is_writable(3) && p.is_writable(4));
+        assert!(!p.is_writable(5) && !p.is_writable(6));
+        // 查找表把总账户数推过 256
+        let mut big = vec![0x80];
+        big.extend_from_slice(&good);
+        encode_shortvec(&mut big, 1);
+        big.extend_from_slice(&k(0x44));
+        encode_shortvec(&mut big, 254);
+        big.extend(core::iter::repeat_n(0u8, 254));
+        encode_shortvec(&mut big, 0);
+        assert_eq!(Message::parse(&big), Err(SolError::Parse)); // 3 + 254 = 257
+        let mut ok = vec![0x80];
+        ok.extend_from_slice(&good);
+        encode_shortvec(&mut ok, 1);
+        ok.extend_from_slice(&k(0x44));
+        encode_shortvec(&mut ok, 253);
+        ok.extend(core::iter::repeat_n(0u8, 253));
+        encode_shortvec(&mut ok, 0);
+        assert!(Message::parse(&ok).is_ok()); // 正好 256
     }
 }

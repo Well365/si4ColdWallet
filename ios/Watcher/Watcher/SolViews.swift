@@ -126,6 +126,8 @@ struct SolAccountView: View {
     }
 
     private func refresh() async {
+        // 先清空：切换网络或查询失败时不能留着上一个网络的余额
+        balances = [:]
         guard let rpc, let owner = account.key else { return }
         do {
             guard try await rpc.genesisHash() == network.genesis else {

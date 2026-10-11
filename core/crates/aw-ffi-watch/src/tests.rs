@@ -657,6 +657,7 @@ fn sol_error_codes_match_signer_table() {
         (E::Derivation, 10),
         (E::BadSignature, 11),
         (E::RequestMismatch, 12),
+        (E::AccountLock, 13),
     ] {
         assert_eq!(
             crate::sol::sol_code(e),
