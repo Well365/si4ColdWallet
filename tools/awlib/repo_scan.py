@@ -89,8 +89,13 @@ def cmd_scan_binaries(_args):
         digest = hashlib.sha256(data).hexdigest()
         if rel in allow:
             parts = rel.split("/")
-            if not (parts[0] == "third_party" and ALLOWLIST_DIRS & set(parts[2:-1])):
-                bad.append(f"{rel}（登记只允许 third_party 下的测试数据/图片目录）")
+            # App 图标（决策 D38）：只允许 ios/<App>/<App>/Assets.xcassets/<名>.appiconset/<名>.png，
+            # 文件头必须是 PNG；图像由 tools/ios/make_icons.swift 生成，按哈希登记
+            app_icon = (len(parts) == 6 and parts[0] == "ios" and parts[3] == "Assets.xcassets"
+                        and parts[4].endswith(".appiconset") and parts[5].endswith(".png")
+                        and data.startswith(b"\x89PNG\r\n\x1a\n"))
+            if not (app_icon or (parts[0] == "third_party" and ALLOWLIST_DIRS & set(parts[2:-1]))):
+                bad.append(f"{rel}（登记只允许 third_party 下的测试数据/图片目录，或 App 图标 PNG）")
             elif len(data) >= 64 and data.startswith(EXEC_MAGIC):  # 小于 64 字节不可能是有效的可执行文件/库/压缩包
                 bad.append(f"{rel}（登记的文件是可执行/目标/库/压缩格式，不允许登记）")
             elif allow[rel] != digest:

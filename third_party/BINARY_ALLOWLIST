@@ -33,3 +33,5 @@ a6a4fc7f637449c3c4f969099acc721de07dbe39971ac75082fafe0ff5eaed33  third_party/ru
 c5123cf51c02933a703b766568b6927835b360513a85ec6ded44106c667521dc  third_party/rust-bitcoin/logo/rust-bitcoin.png  # 上游 README 图片，不参与构建
 5023d1117d18595d9429618eb59f2d684f710ac9c200a175b55d3e450d2a102a  third_party/shlex/fuzz/fuzz_quote_real_shell/basic-corpus/long-random  # 上游模糊测试语料，不参与构建
 01465d4ead2f71272dd0d7abe3f9609512f6b5d0d0cd862dfbca94e967022236  third_party/shlex/fuzz/fuzz_quote_real_shell/basic-corpus/short-random  # 上游模糊测试语料，不参与构建
+a8dbf9764d34ea49395bd348a4c169d95dcb082a182e9ede1cf58749e8f89d47  ios/Signer/Signer/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png  # App 图标（决策 D38），由 tools/ios/make_icons.swift 生成
+20f7ea2103296a7c8c9d04e47bbe79ce2929d2ade0143a3ffe16a8ea0f502163  ios/Watcher/Watcher/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png  # App 图标（决策 D38），由 tools/ios/make_icons.swift 生成

@@ -179,6 +179,7 @@
 				ENABLE_DEBUG_DYLIB = NO;
 				ENABLE_PREVIEWS = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_KEY_CFBundleDisplayName = "AW Watcher";
 				INFOPLIST_KEY_NSCameraUsageDescription = "扫描签名机显示的账户与签名二维码";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -211,6 +212,7 @@
 				ENABLE_DEBUG_DYLIB = NO;
 				ENABLE_PREVIEWS = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_KEY_CFBundleDisplayName = "AW Watcher";
 				INFOPLIST_KEY_NSCameraUsageDescription = "扫描签名机显示的账户与签名二维码";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
